@@ -21,7 +21,7 @@ if not SUPABASE_URL or not SUPABASE_KEY:
     exit(1)
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
-geolocator = Nominatim(user_agent="rota_da_festa_bot_v4")
+geolocator = Nominatim(user_agent="rota_da_festa_bot_v5")
 
 def geolocalizar_estadio(nome_equipa: str):
     # Cache manual para equipas comuns do Norte/Aveiro
@@ -43,11 +43,9 @@ def geolocalizar_estadio(nome_equipa: str):
         "Oliveirense": {"lat": 40.8386, "lon": -8.4776, "local": "Estádio Carlos Osório"}
     }
     
-    # 1. Tentar encontrar nome da equipa na cache
     for k, v in CACHE.items():
         if k in nome_equipa: return v
 
-    # 2. Geocoding se for uma equipa com nome de cidade
     cidades = ["Braga", "Guimarães", "Porto", "Aveiro", "Barcelos", "Maia", "Matosinhos", "Espinho", "Ovar", "Águeda"]
     if any(c in nome_equipa for c in cidades):
         try:
@@ -62,69 +60,71 @@ async def scrape_zerozero():
     print(f"🌍 A abrir: {url}")
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True) # Mudar para False se quiseres ver a janela a abrir
-        context = await browser.new_context(user_agent="Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+        # Browser com Viewport de Desktop para garantir layout correto
+        browser = await p.chromium.launch(headless=True)
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36",
+            viewport={"width": 1280, "height": 720}
+        )
         page = await context.new_page()
 
         try:
-            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
+            await page.goto(url, timeout=90000, wait_until="domcontentloaded")
             
-            # 1. Tentar aceitar cookies (vários seletores possíveis)
+            # Debug: Título da página (ajuda a detetar bloqueios Cloudflare)
+            title = await page.title()
+            print(f"📄 Título da página: {title}")
+
+            # 1. Tentar aceitar cookies (Seletor específico do ZeroZero/Didomi)
             try:
                 print("🍪 A tentar aceitar cookies...")
-                await page.click("button:has-text('Aceitar')", timeout=3000)
-                await page.click("button:has-text('Concordo')", timeout=3000)
+                await page.click("#didomi-notice-agree-button", timeout=3000)
             except:
-                pass # Se não encontrar botão, segue em frente
+                pass # Se falhar, tenta continuar
 
-            # 2. Esperar pela tabela de jogos
-            await page.wait_for_timeout(3000) # Espera 3s para JS carregar
-            
-            # Extrair jogos usando seletores genéricos de estrutura
-            # O ZeroZero organiza jogos em linhas com classe 'parent' ou dentro de divs 'zz-gameline'
+            # 2. Esperar explicitamente pelos elementos de jogo
+            try:
+                await page.wait_for_selector(".zz-gameline, tr.parent", timeout=10000)
+            except:
+                print("⚠️ Timeout à espera da tabela de jogos.")
+
+            # 3. Extrair Jogos
             jogos_els = await page.locator("div.zz-gameline").all()
-            
             if not jogos_els:
-                # Fallback para estrutura antiga de tabela
                 jogos_els = await page.locator("tr.parent").all()
 
             print(f"🔍 Encontrados {len(jogos_els)} elementos potenciais.")
+            
+            if len(jogos_els) == 0:
+                print("⚠️ Falha na extração. Possível bloqueio ou mudança de layout.")
+                return []
 
             resultados = []
             
             for el in jogos_els:
                 texto = await el.inner_text()
-                
-                # Limpeza básica
                 texto_limpo = re.sub(r'\s+', ' ', texto).strip()
                 
-                # Ignorar se não tiver hora (formato HH:MM)
-                if not re.search(r'\d{2}:\d{2}', texto_limpo):
-                    continue
+                if not re.search(r'\d{2}:\d{2}', texto_limpo): continue
 
-                # Extrair hora
                 hora = re.search(r'\d{2}:\d{2}', texto_limpo).group(0)
-
-                # Tentar extrair equipas (links dentro do elemento)
-                links = await el.locator("a").all_inner_texts()
-                # Filtrar links vazios ou curtos (ex: "VS", "-")
-                equipas = [l for l in links if len(l) > 2 and not l[0].isdigit()]
+                
+                # Extração de equipas mais robusta
+                equipas_texto = await el.locator("a").all_inner_texts()
+                equipas = [l for l in equipas_texto if len(l) > 2 and not l[0].isdigit()]
 
                 if len(equipas) < 2: continue
                 
                 casa = equipas[0]
                 fora = equipas[1]
 
-                # Filtro Geográfico (Norte/Aveiro)
                 zonas = ["Braga", "Guimarães", "Porto", "Aveiro", "Barcelos", "Famalicão", "Feira", "Varzim", "Leixões", "Trofense", "Rio Tinto", "Maia", "Espinho", "Ovar", "Arouca"]
                 if not any(z in casa for z in zonas) and not any(z in fora for z in zonas):
                     continue
 
-                # Geolocalizar
                 geo = geolocalizar_estadio(casa)
                 if not geo: continue
 
-                # Determinar Categoria e Preço
                 cat = "Futebol Distrital"
                 preco = "5€"
                 if "Liga Portugal" in texto_limpo: 
@@ -134,12 +134,11 @@ async def scrape_zerozero():
                     cat = "Formação"
                     preco = "Grátis"
 
-                # Objeto Final
                 evento = {
                     "nome": f"{casa} vs {fora}",
                     "tipo": "Futebol",
                     "categoria": cat,
-                    "data": datetime.now().strftime("%Y-%m-%d"), # Assume hoje
+                    "data": datetime.now().strftime("%Y-%m-%d"),
                     "hora": hora,
                     "local": geo["local"],
                     "latitude": geo["lat"],
@@ -165,7 +164,7 @@ async def main():
     eventos = await scrape_zerozero()
     
     if not eventos:
-        print("⚠️ Nada encontrado. Tenta rodar de novo ou verifica se o site está acessível.")
+        print("⚠️ Nada encontrado.")
         return
 
     print(f"\n📦 A guardar {len(eventos)} eventos...")
