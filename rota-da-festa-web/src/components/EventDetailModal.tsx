@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 
 // =============================================
 // Types
@@ -56,22 +56,76 @@ const WEATHER_DESC: Record<number, { icon: string; desc: string }> = {
 // =============================================
 // Helpers
 // =============================================
-function getCountdown(eventDate: string, eventTime: string): { text: string; color: string; emoji: string } {
-  const now = new Date();
-  const eventDt = new Date(`${eventDate}T${eventTime || "00:00"}:00`);
-  const diffMs = eventDt.getTime() - now.getTime();
-  const diffDays = Math.ceil(diffMs / (1000 * 60 * 60 * 24));
+function parseEventDate(eventDate: string, eventTime: string): Date | null {
+  if (!eventDate) return null;
+  const parts = eventDate.split("-");
+  if (parts.length !== 3) return null;
+  const [y, m, d] = parts.map(Number);
+  if (isNaN(y) || isNaN(m) || isNaN(d)) return null;
+  const timeParts = (eventTime || "00:00").split(":").map(Number);
+  const h = isNaN(timeParts[0]) ? 0 : timeParts[0];
+  const min = isNaN(timeParts[1]) ? 0 : timeParts[1];
+  return new Date(y, m - 1, d, h, min, 0);
+}
 
-  if (diffDays < 0) return { text: "Já decorreu", color: "text-gray-400 dark:text-gray-500", emoji: "⏰" };
-  if (diffDays === 0) return { text: `Hoje às ${eventTime}`, color: "text-green-600 dark:text-green-400", emoji: "🔴" };
-  if (diffDays === 1) return { text: `Amanhã às ${eventTime}`, color: "text-blue-600 dark:text-blue-400", emoji: "📣" };
-  if (diffDays <= 7) return { text: `Faltam ${diffDays} dias`, color: "text-indigo-600 dark:text-indigo-400", emoji: "📅" };
+function getCountdown(eventDate: string, eventTime: string): { text: string; color: string; emoji: string } {
+  const eventDt = parseEventDate(eventDate, eventTime);
+  if (!eventDt || isNaN(eventDt.getTime())) {
+    return { text: "Data por confirmar", color: "text-gray-400 dark:text-gray-500", emoji: "❓" };
+  }
+
+  const now = new Date();
+  const diffMs = eventDt.getTime() - now.getTime();
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+
+  // Already passed
+  if (diffMs < -2 * 60 * 60 * 1000) {
+    return { text: "Já decorreu", color: "text-gray-400 dark:text-gray-500", emoji: "⏰" };
+  }
+
+  // Currently happening (within ~2h of start)
+  if (diffMs < 0) {
+    return { text: "A decorrer agora!", color: "text-red-600 dark:text-red-400", emoji: "🔴" };
+  }
+
+  // Less than 1 hour
+  if (diffMinutes < 60) {
+    return { text: `Começa em ${diffMinutes} min`, color: "text-red-600 dark:text-red-400", emoji: "🔴" };
+  }
+
+  // Today — show hours
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}-${String(now.getDate()).padStart(2, "0")}`;
+  if (eventDate === todayStr) {
+    return {
+      text: diffHours === 1 ? `Hoje, falta 1 hora` : `Hoje, faltam ${diffHours}h`,
+      color: "text-green-600 dark:text-green-400",
+      emoji: "🟢",
+    };
+  }
+
+  // Tomorrow
+  const tomorrow = new Date(now);
+  tomorrow.setDate(tomorrow.getDate() + 1);
+  const tomorrowStr = `${tomorrow.getFullYear()}-${String(tomorrow.getMonth() + 1).padStart(2, "0")}-${String(tomorrow.getDate()).padStart(2, "0")}`;
+  if (eventDate === tomorrowStr) {
+    return { text: `Amanhã às ${eventTime}`, color: "text-blue-600 dark:text-blue-400", emoji: "📣" };
+  }
+
+  // Calculate days from today (midnight to midnight)
+  const todayMidnight = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const eventMidnight = new Date(eventDt.getFullYear(), eventDt.getMonth(), eventDt.getDate());
+  const diffDays = Math.round((eventMidnight.getTime() - todayMidnight.getTime()) / (1000 * 60 * 60 * 24));
+
+  if (diffDays <= 7) {
+    return { text: `Faltam ${diffDays} dias`, color: "text-indigo-600 dark:text-indigo-400", emoji: "📅" };
+  }
   return { text: `Faltam ${diffDays} dias`, color: "text-gray-600 dark:text-gray-300", emoji: "🗓" };
 }
 
 function generateICS(event: any): string {
   const dtStart = event.data.replace(/-/g, "") + "T" + (event.hora || "00:00").replace(":", "") + "00";
-  const startDate = new Date(`${event.data}T${event.hora || "00:00"}:00`);
+  const startDate = parseEventDate(event.data, event.hora) || new Date();
   const endDate = new Date(startDate.getTime() + 2 * 60 * 60 * 1000);
   const pad = (n: number) => String(n).padStart(2, "0");
   const dtEnd = `${endDate.getFullYear()}${pad(endDate.getMonth() + 1)}${pad(endDate.getDate())}T${pad(endDate.getHours())}${pad(endDate.getMinutes())}00`;
@@ -92,7 +146,7 @@ function generateICS(event: any): string {
   ].join("\r\n");
 }
 
-function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
+function getDistanceBetween(lat1: number, lon1: number, lat2: number, lon2: number) {
   const R = 6371;
   const dLat = ((lat2 - lat1) * Math.PI) / 180;
   const dLon = ((lon2 - lon1) * Math.PI) / 180;
@@ -104,10 +158,48 @@ function buildZeroZeroSearch(team: string): string {
   return `https://www.zerozero.pt/search.php?search=${encodeURIComponent(team)}`;
 }
 
+/**
+ * Constrói URL para a classificação da competição no ZeroZero.
+ * Usa Google com site:zerozero.pt para encontrar a página certa.
+ */
+function buildClassificationUrl(event: any): string {
+  // Extrair nome real da competição a partir da descrição (scraper guarda "Jogo de X. <competição>")
+  const descMatch = event.descricao?.match(/Jogo de .+?\.\s*(.+)/);
+  const rawComp = descMatch ? descMatch[1].trim() : "";
+
+  // Usar a competição real se disponível, senão a categoria
+  let searchTerm = rawComp || event.categoria || "";
+
+  // Para formação, incluir o escalão e tentar inferir a AF
+  if (searchTerm.startsWith("Formação")) {
+    const escalao = event.escalao || "";
+    // Tentar extrair AF da descrição ou da categoria
+    const afMatch = (event.descricao || event.categoria || "").match(/(AF\s+\w+)/i);
+    const af = afMatch ? afMatch[1] : "";
+    searchTerm = `${af} ${escalao} classificação`.trim();
+  }
+
+  // Temporada atual
+  const now = new Date();
+  const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
+  const season = `${year}/${year + 1}`;
+
+  const query = `site:zerozero.pt classificação "${searchTerm}" ${season}`;
+  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+}
+
 function formatWeekday(dateStr: string): string {
-  const days = ["Domingo", "Segunda", "Terça", "Quarta", "Quinta", "Sexta", "Sábado"];
-  const d = new Date(dateStr + "T12:00:00");
-  return days[d.getDay()];
+  const days = ["Domingo", "Segunda-feira", "Terça-feira", "Quarta-feira", "Quinta-feira", "Sexta-feira", "Sábado"];
+  const parts = dateStr.split("-").map(Number);
+  if (parts.length !== 3 || parts.some(isNaN)) return "";
+  const d = new Date(parts[0], parts[1] - 1, parts[2], 12);
+  return days[d.getDay()] || "";
+}
+
+function formatDateShort(dateStr: string): string {
+  const parts = dateStr.split("-");
+  if (parts.length !== 3) return dateStr;
+  return `${parts[2]}/${parts[1]}/${parts[0]}`;
 }
 
 // =============================================
@@ -120,41 +212,67 @@ export default function EventDetailModal({
   const [weather, setWeather] = useState<WeatherData | null>(null);
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [shareMsg, setShareMsg] = useState("");
+  const [isFirstMount, setIsFirstMount] = useState(true);
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const prevEventId = useRef<number | null>(null);
 
   const isFutebol = event.tipo === "Futebol";
   const countdown = getCountdown(event.data, event.hora);
 
-  // Nearby events: same week, within 15km, excluding self
-  const nearbyEvents = allEvents
-    .filter((ev) => {
-      if (ev.id === event.id) return false;
-      const dist = getDistance(event.latitude, event.longitude, ev.latitude, ev.longitude);
-      const daysDiff = Math.abs(
-        (new Date(ev.data).getTime() - new Date(event.data).getTime()) / (1000 * 60 * 60 * 24)
-      );
-      return dist < 15 && daysDiff <= 7;
-    })
-    .map((ev) => ({
-      ...ev,
-      distFromEvent: getDistance(event.latitude, event.longitude, ev.latitude, ev.longitude),
-    }))
-    .sort((a, b) => a.distFromEvent - b.distFromEvent)
-    .slice(0, 5);
-
-  // Fetch weather from Open-Meteo
+  // Scroll to top on event change (no flicker)
   useEffect(() => {
-    const eventDate = new Date(event.data + "T12:00:00");
-    const now = new Date();
-    const diffDays = Math.ceil((eventDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+    if (prevEventId.current !== null && prevEventId.current !== event.id) {
+      // Switching events — scroll to top smoothly, no entry animation
+      scrollRef.current?.scrollTo({ top: 0, behavior: "smooth" });
+    }
+    prevEventId.current = event.id;
+  }, [event.id]);
 
-    if (diffDays < 0 || diffDays > 14) return;
+  // Disable first-mount animation after opening
+  useEffect(() => {
+    const t = requestAnimationFrame(() => setIsFirstMount(false));
+    return () => cancelAnimationFrame(t);
+  }, []);
+
+  // Nearby events: same week, within 15km, excluding self
+  const nearbyEvents = useMemo(() =>
+    allEvents
+      .filter((ev) => {
+        if (ev.id === event.id) return false;
+        const dist = getDistanceBetween(event.latitude, event.longitude, ev.latitude, ev.longitude);
+        const d1 = parseEventDate(ev.data, "12:00");
+        const d2 = parseEventDate(event.data, "12:00");
+        if (!d1 || !d2) return false;
+        const daysDiff = Math.abs((d1.getTime() - d2.getTime()) / (1000 * 60 * 60 * 24));
+        return dist < 15 && daysDiff <= 7;
+      })
+      .map((ev) => ({
+        ...ev,
+        distFromEvent: getDistanceBetween(event.latitude, event.longitude, ev.latitude, ev.longitude),
+      }))
+      .sort((a, b) => a.distFromEvent - b.distFromEvent)
+      .slice(0, 5),
+    [allEvents, event.id, event.latitude, event.longitude, event.data]
+  );
+
+  // Fetch weather from Open-Meteo (reset on event change)
+  useEffect(() => {
+    setWeather(null);
+    const eventDt = parseEventDate(event.data, "12:00");
+    if (!eventDt) return;
+    const now = new Date();
+    const diffDays = Math.ceil((eventDt.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
+
+    if (diffDays < -1 || diffDays > 14) return;
 
     setWeatherLoading(true);
+    let cancelled = false;
     const url = `https://api.open-meteo.com/v1/forecast?latitude=${event.latitude}&longitude=${event.longitude}&daily=temperature_2m_max,temperature_2m_min,weathercode&timezone=Europe/Lisbon&start_date=${event.data}&end_date=${event.data}`;
 
     fetch(url)
       .then((r) => r.json())
       .then((data) => {
+        if (cancelled) return;
         if (data.daily?.temperature_2m_max?.[0] != null) {
           const code = data.daily.weathercode[0];
           const wd = WEATHER_DESC[code] || { icon: "🌡", desc: "Desconhecido" };
@@ -168,8 +286,10 @@ export default function EventDetailModal({
         }
       })
       .catch(() => {})
-      .finally(() => setWeatherLoading(false));
-  }, [event.data, event.latitude, event.longitude]);
+      .finally(() => { if (!cancelled) setWeatherLoading(false); });
+
+    return () => { cancelled = true; };
+  }, [event.id, event.data, event.latitude, event.longitude]);
 
   // Close on Escape
   useEffect(() => {
@@ -187,7 +307,7 @@ export default function EventDetailModal({
   const handleShare = useCallback(async () => {
     const shareData = {
       title: event.nome,
-      text: `${event.nome} — ${event.data} às ${event.hora} em ${event.local}`,
+      text: `${event.nome} — ${formatDateShort(event.data)} às ${event.hora} em ${event.local}`,
       url: window.location.href,
     };
     try {
@@ -224,24 +344,27 @@ export default function EventDetailModal({
   return (
     <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center" role="dialog" aria-modal="true">
       {/* Backdrop */}
-      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm transition-opacity" onClick={onClose} />
 
-      {/* Modal */}
-      <div className="relative w-full md:max-w-lg md:mx-4 max-h-[90vh] bg-white dark:bg-gray-900 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col animate-slide-up">
+      {/* Modal — only animate on first mount */}
+      <div className={`relative w-full md:max-w-lg md:mx-4 max-h-[90vh] bg-white dark:bg-gray-900 rounded-t-2xl md:rounded-2xl shadow-2xl overflow-hidden flex flex-col ${isFirstMount ? "animate-slide-up" : ""}`}>
         
-        {/* Header */}
-        <div className={`p-4 pb-3 border-b border-gray-100 dark:border-gray-800 ${isFutebol ? "bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950/30 dark:to-blue-950/30" : "bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30"}`}>
-          {/* Close + Favorite */}
+        {/* Drag handle (mobile) */}
+        <div className="flex justify-center pt-2 pb-0 md:hidden">
+          <div className="w-10 h-1 rounded-full bg-gray-300 dark:bg-gray-700" />
+        </div>
+
+        {/* Header — transition content smoothly */}
+        <div className={`p-4 pb-3 border-b border-gray-100 dark:border-gray-800 transition-colors duration-200 ${isFutebol ? "bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950/30 dark:to-blue-950/30" : "bg-gradient-to-r from-red-50 to-orange-50 dark:from-red-950/30 dark:to-orange-950/30"}`}>
           <div className="flex justify-between items-center mb-2">
             <button onClick={onClose} className="p-1.5 rounded-full bg-gray-200/80 dark:bg-gray-700/80 hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors" aria-label="Fechar">
               <svg className="w-5 h-5 text-gray-600 dark:text-gray-300" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
             </button>
             <div className="flex items-center gap-2">
-              {/* Countdown badge */}
-              <span className={`text-xs font-bold px-2.5 py-1 rounded-full bg-white/80 dark:bg-gray-800/80 ${countdown.color}`}>
+              <span className={`text-xs font-bold px-2.5 py-1 rounded-full bg-white/80 dark:bg-gray-800/80 ${countdown.color} transition-colors duration-200`}>
                 {countdown.emoji} {countdown.text}
               </span>
-              <button onClick={onToggleFavorite} className={`p-2 rounded-full transition-colors ${isFavorite ? "text-red-500 bg-red-50 dark:bg-red-900/30" : "text-gray-400 bg-gray-100 dark:bg-gray-800"}`} aria-label="Favorito">
+              <button onClick={onToggleFavorite} className={`p-2 rounded-full transition-all duration-200 ${isFavorite ? "text-red-500 bg-red-50 dark:bg-red-900/30 scale-110" : "text-gray-400 bg-gray-100 dark:bg-gray-800 hover:scale-110"}`} aria-label="Favorito">
                 <svg xmlns="http://www.w3.org/2000/svg" fill={isFavorite ? "currentColor" : "none"} viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor" className="w-5 h-5">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
                 </svg>
@@ -249,13 +372,12 @@ export default function EventDetailModal({
             </div>
           </div>
 
-          {/* Badges */}
           <div className="flex items-center gap-2 mb-2 flex-wrap">
-            <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider ${isFutebol ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"}`}>
+            <span className={`text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider transition-colors duration-200 ${isFutebol ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"}`}>
               {event.tipo}
             </span>
             {event.escalao && (
-              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${event.escalao === "Seniores" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100" : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100"}`}>
+              <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full transition-colors duration-200 ${event.escalao === "Seniores" ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100" : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100"}`}>
                 {event.escalao}
               </span>
             )}
@@ -266,30 +388,29 @@ export default function EventDetailModal({
             )}
           </div>
 
-          {/* Title */}
           <h2 className="text-xl font-extrabold text-gray-900 dark:text-white leading-tight">
             {event.nome}
           </h2>
         </div>
 
         {/* Scrollable Content */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+        <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
 
           {/* Quick Actions */}
           <div className="grid grid-cols-4 gap-2">
-            <button onClick={() => { onShowOnMap(event); onClose(); }} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group">
+            <button onClick={() => { onShowOnMap(event); onClose(); }} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group active:scale-95">
               <span className="text-xl group-hover:scale-110 transition-transform">🗺️</span>
               <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300">Ver Mapa</span>
             </button>
-            <button onClick={handleNavigate} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors group">
+            <button onClick={handleNavigate} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors group active:scale-95">
               <span className="text-xl group-hover:scale-110 transition-transform">🚗</span>
               <span className="text-[10px] font-bold text-green-700 dark:text-green-300">Ir Para Lá</span>
             </button>
-            <button onClick={handleCalendar} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors group">
+            <button onClick={handleCalendar} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors group active:scale-95">
               <span className="text-xl group-hover:scale-110 transition-transform">📅</span>
               <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300">Calendário</span>
             </button>
-            <button onClick={handleShare} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors group relative">
+            <button onClick={handleShare} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors group active:scale-95 relative">
               <span className="text-xl group-hover:scale-110 transition-transform">📤</span>
               <span className="text-[10px] font-bold text-orange-700 dark:text-orange-300">{shareMsg || "Partilhar"}</span>
             </button>
@@ -300,16 +421,16 @@ export default function EventDetailModal({
             <div className="grid grid-cols-2 gap-3">
               <div className="flex items-center gap-2">
                 <span className="text-lg">📍</span>
-                <div>
+                <div className="min-w-0">
                   <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase">Local</p>
-                  <p className="text-sm font-bold text-gray-900 dark:text-white">{event.local}</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white truncate">{event.local}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
                 <span className="text-lg">📅</span>
                 <div>
                   <p className="text-[10px] text-gray-500 dark:text-gray-400 font-medium uppercase">Data</p>
-                  <p className="text-sm font-bold text-gray-900 dark:text-white">{formatWeekday(event.data)}, {event.data}</p>
+                  <p className="text-sm font-bold text-gray-900 dark:text-white">{formatWeekday(event.data)}, {formatDateShort(event.data)}</p>
                 </div>
               </div>
               <div className="flex items-center gap-2">
@@ -340,15 +461,18 @@ export default function EventDetailModal({
             )}
           </div>
 
-          {/* Weather */}
-          {(weather || weatherLoading) && (
-            <div className="bg-gradient-to-r from-sky-50 to-blue-50 dark:from-sky-950/30 dark:to-blue-950/30 rounded-xl p-4">
-              <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">🌤 Previsão Meteorológica</h3>
-              {weatherLoading ? (
-                <div className="flex items-center gap-2 text-sm text-gray-500 dark:text-gray-400">
-                  <span className="animate-spin">⏳</span> A carregar...
+          {/* Weather — fixed height to prevent layout shift */}
+          <div className="min-h-[80px] rounded-xl overflow-hidden transition-all duration-300">
+            {weatherLoading ? (
+              <div className="bg-gradient-to-r from-sky-50 to-blue-50 dark:from-sky-950/30 dark:to-blue-950/30 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">🌤 Previsão Meteorológica</h3>
+                <div className="flex items-center gap-2 text-sm text-gray-400">
+                  <span className="animate-pulse">⏳</span> A carregar previsão...
                 </div>
-              ) : weather ? (
+              </div>
+            ) : weather ? (
+              <div className="bg-gradient-to-r from-sky-50 to-blue-50 dark:from-sky-950/30 dark:to-blue-950/30 rounded-xl p-4">
+                <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">🌤 Previsão Meteorológica</h3>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
                     <span className="text-4xl">{weather.icon}</span>
@@ -362,29 +486,28 @@ export default function EventDetailModal({
                     <p className="text-sm text-gray-400">{weather.tempMin}°</p>
                   </div>
                 </div>
-              ) : null}
-            </div>
-          )}
+              </div>
+            ) : null}
+          </div>
 
           {/* Football Section */}
           {isFutebol && (
             <div className="bg-gradient-to-r from-green-50 to-emerald-50 dark:from-green-950/20 dark:to-emerald-950/20 rounded-xl p-4">
               <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-3">⚽ Informação do Jogo</h3>
               
-              {/* Teams */}
               {(event.equipa_casa || event.equipa_fora) ? (
                 <div className="flex items-center justify-between mb-3">
-                  <div className="flex-1 text-center">
-                    <p className="font-extrabold text-gray-900 dark:text-white text-base">{event.equipa_casa}</p>
+                  <div className="flex-1 text-center min-w-0">
+                    <p className="font-extrabold text-gray-900 dark:text-white text-base truncate px-1">{event.equipa_casa}</p>
                     <a href={buildZeroZeroSearch(event.equipa_casa)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
                       Ver no ZeroZero →
                     </a>
                   </div>
-                  <div className="px-4">
+                  <div className="px-3 flex-shrink-0">
                     <span className="text-2xl font-black text-gray-300 dark:text-gray-600">VS</span>
                   </div>
-                  <div className="flex-1 text-center">
-                    <p className="font-extrabold text-gray-900 dark:text-white text-base">{event.equipa_fora}</p>
+                  <div className="flex-1 text-center min-w-0">
+                    <p className="font-extrabold text-gray-900 dark:text-white text-base truncate px-1">{event.equipa_fora}</p>
                     <a href={buildZeroZeroSearch(event.equipa_fora)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
                       Ver no ZeroZero →
                     </a>
@@ -392,20 +515,19 @@ export default function EventDetailModal({
                 </div>
               ) : null}
 
-              {/* Competition info */}
               {event.descricao && (
                 <p className="text-xs text-gray-600 dark:text-gray-400 bg-white/50 dark:bg-gray-800/50 rounded-lg p-2 text-center">
                   {event.descricao}
                 </p>
               )}
 
-              {/* ZeroZero classification link */}
+              {/* Classification — uses Google site:zerozero.pt for precise results */}
               {event.categoria && (
                 <a
-                  href={`https://www.zerozero.pt/search.php?search=${encodeURIComponent(event.categoria)}`}
+                  href={buildClassificationUrl(event)}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-3 flex items-center justify-center gap-2 p-2.5 rounded-lg bg-white/70 dark:bg-gray-800/70 hover:bg-white dark:hover:bg-gray-800 transition-colors text-sm font-bold text-gray-700 dark:text-gray-200"
+                  className="mt-3 flex items-center justify-center gap-2 p-2.5 rounded-lg bg-white/70 dark:bg-gray-800/70 hover:bg-white dark:hover:bg-gray-800 transition-colors text-sm font-bold text-gray-700 dark:text-gray-200 active:scale-[0.98]"
                 >
                   📊 Ver Classificação — {event.categoria}
                 </a>
@@ -430,7 +552,7 @@ export default function EventDetailModal({
                   <button
                     key={ev.id}
                     onClick={() => onSelectEvent(ev)}
-                    className="w-full text-left p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center gap-3 group"
+                    className="w-full text-left p-3 rounded-xl bg-gray-50 dark:bg-gray-800/50 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors flex items-center gap-3 group active:scale-[0.98]"
                   >
                     <span className="text-xl flex-shrink-0">{ev.tipo === "Futebol" ? "⚽" : "🎉"}</span>
                     <div className="flex-1 min-w-0">
@@ -438,7 +560,7 @@ export default function EventDetailModal({
                         {ev.nome}
                       </p>
                       <p className="text-[11px] text-gray-500 dark:text-gray-400">
-                        {ev.data} · {ev.hora} · {ev.distFromEvent.toFixed(1)} km
+                        {formatDateShort(ev.data)} · {ev.hora} · {ev.distFromEvent.toFixed(1)} km
                       </p>
                     </div>
                     <svg className="w-4 h-4 text-gray-400 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" /></svg>
@@ -447,6 +569,9 @@ export default function EventDetailModal({
               </div>
             </div>
           )}
+
+          {/* Bottom spacer for safe area */}
+          <div className="h-2" />
         </div>
       </div>
     </div>
