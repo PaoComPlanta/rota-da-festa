@@ -163,28 +163,42 @@ function buildZeroZeroSearch(team: string): string {
  * Usa Google com site:zerozero.pt para encontrar a página certa.
  */
 function buildClassificationUrl(event: any): string {
-  // Extrair nome real da competição a partir da descrição (scraper guarda "Jogo de X. <competição>")
-  const descMatch = event.descricao?.match(/Jogo de .+?\.\s*(.+)/);
-  const rawComp = descMatch ? descMatch[1].trim() : "";
+  let comp = event.categoria || "";
 
-  // Usar a competição real se disponível, senão a categoria
-  let searchTerm = rawComp || event.categoria || "";
-
-  // Para formação, incluir o escalão e tentar inferir a AF
-  if (searchTerm.startsWith("Formação")) {
-    const escalao = event.escalao || "";
-    // Tentar extrair AF da descrição ou da categoria
-    const afMatch = (event.descricao || event.categoria || "").match(/(AF\s+\w+)/i);
-    const af = afMatch ? afMatch[1] : "";
-    searchTerm = `${af} ${escalao} classificação`.trim();
+  // Para formação, pesquisar pela equipa da casa + escalão (mais fiável)
+  if (comp.startsWith("Formação")) {
+    const escalaoName = comp.replace("Formação - ", "").replace(/[()]/g, "").trim();
+    if (event.equipa_casa) {
+      const query = `site:zerozero.pt "${event.equipa_casa}" ${escalaoName} classificação`;
+      return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+    }
+    comp = escalaoName;
   }
+
+  // Tentar extrair competição da descrição se disponível
+  const descMatch = event.descricao?.match(/Jogo de .+?\.\s*(.+)/);
+  const rawDesc = descMatch ? descMatch[1].trim() : "";
+  // Usar descrição se não for texto genérico
+  if (rawDesc && !/Vem ver|Apoia a tua|futuro do clube/i.test(rawDesc)) {
+    comp = rawDesc;
+  }
+
+  // Limpar: remover jornada, fase, época inline, pontos finais
+  comp = comp
+    .replace(/\(Jornada\s*\d+\)/gi, "")
+    .replace(/\bFase\s+[\wÀ-ú.]+(?:\s+[\wÀ-ú.]+)*/gi, "")
+    .replace(/\b\d{2}\/\d{2,4}\b/g, "")
+    .replace(/[.]+$/g, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
 
   // Temporada atual
   const now = new Date();
   const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
   const season = `${year}/${year + 1}`;
 
-  const query = `site:zerozero.pt classificação "${searchTerm}" ${season}`;
+  // Sem aspas no nome da competição para resultados mais abrangentes
+  const query = `site:zerozero.pt classificação ${comp} ${season}`;
   return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
 }
 
