@@ -8,9 +8,10 @@ interface EventCardProps {
   distance: number | null;
   userId: string | null;
   isFavoriteInicial: boolean;
+  onSelect: (event: any) => void;
 }
 
-export default function EventCard({ event, distance, userId, isFavoriteInicial }: EventCardProps) {
+export default function EventCard({ event, distance, userId, isFavoriteInicial, onSelect }: EventCardProps) {
   const [isFavorite, setIsFavorite] = useState(isFavoriteInicial);
   const [loading, setLoading] = useState(false);
 
@@ -40,8 +41,10 @@ export default function EventCard({ event, distance, userId, isFavoriteInicial }
   const isFutebol = event.tipo === "Futebol";
 
   return (
-    <div className={`
-      relative group bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 p-4 mb-3 
+    <div
+      onClick={() => onSelect(event)}
+      className={`
+      relative group bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 p-4 mb-3 cursor-pointer
       transition-all hover:shadow-lg hover:scale-[1.01] 
       ${isFutebol ? "border-green-500" : "border-red-500"}
       ${isFavorite ? "border-yellow-400" : ""}
@@ -102,7 +105,7 @@ export default function EventCard({ event, distance, userId, isFavoriteInicial }
 
         {/* Botão Favorito */}
         <button
-          onClick={toggleFavorite}
+          onClick={(e) => { e.stopPropagation(); toggleFavorite(); }}
           disabled={loading}
           aria-label={isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}
           className={`

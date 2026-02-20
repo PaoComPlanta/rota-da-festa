@@ -162,6 +162,8 @@ def generate_events():
                 "tipo": "Futebol",
                 "categoria": categoria,
                 "escalao": escalao,
+                "equipa_casa": home["equipa"],
+                "equipa_fora": adversario,
                 "data": data_jogo.strftime("%Y-%m-%d"),
                 "hora": hora,
                 "local": home["estadio"],

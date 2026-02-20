@@ -23,6 +23,7 @@ interface Evento {
 interface MapProps {
   events: Evento[];
   userLocation: { lat: number; lng: number } | null;
+  onSelectEvent?: (event: Evento) => void;
 }
 
 // Ícones Customizados
@@ -56,7 +57,7 @@ function RecenterMap({ lat, lng }: { lat: number; lng: number }) {
   return null;
 }
 
-export default function Map({ events, userLocation }: MapProps) {
+export default function Map({ events, userLocation, onSelectEvent }: MapProps) {
   const { theme } = useTheme();
   
   // Tiles Baseados no Tema
@@ -112,14 +113,24 @@ export default function Map({ events, userLocation }: MapProps) {
                   <span className="bg-gray-100 px-2 py-1 rounded">📅 {event.data}</span>
                   <span className="bg-gray-100 px-2 py-1 rounded">🕒 {event.hora}</span>
                 </div>
-                <a
-                  href={`https://www.google.com/maps/dir/?api=1&destination=${event.latitude},${event.longitude}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="block w-full text-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded-lg transition-colors no-underline focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
-                >
-                  Navegar 🚗
-                </a>
+                <div className="flex gap-2">
+                  {onSelectEvent && (
+                    <button
+                      onClick={() => onSelectEvent(event)}
+                      className="flex-1 text-center bg-gray-900 hover:bg-gray-800 text-white font-bold py-2 px-3 rounded-lg transition-colors text-sm"
+                    >
+                      Detalhes 📋
+                    </button>
+                  )}
+                  <a
+                    href={`https://www.google.com/maps/dir/?api=1&destination=${event.latitude},${event.longitude}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex-1 text-center bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-3 rounded-lg transition-colors no-underline text-sm"
+                  >
+                    Navegar 🚗
+                  </a>
+                </div>
               </div>
             </Popup>
           </Marker>

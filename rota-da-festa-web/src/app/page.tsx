@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import dynamic from "next/dynamic";
 import { supabase } from "@/utils/supabase/client";
 import EventCard from "@/components/EventCard";
+import EventDetailModal from "@/components/EventDetailModal";
 import Link from "next/link";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -41,6 +42,29 @@ export default function Home() {
   const [userId, setUserId] = useState<string | null>(null);
   const [userFavorites, setUserFavorites] = useState<number[]>([]);
   const [citySelection, setCitySelection] = useState("braga");
+  const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
+
+  // Callbacks for modal
+  const handleSelectEvent = useCallback((event: any) => {
+    setSelectedEvent(event);
+  }, []);
+
+  const handleShowOnMap = useCallback((event: any) => {
+    setUserLocation({ lat: event.latitude, lng: event.longitude });
+    setActiveTab("mapa");
+  }, []);
+
+  const handleToggleFavorite = useCallback(async () => {
+    if (!userId || !selectedEvent) return;
+    const isFav = userFavorites.includes(selectedEvent.id);
+    if (isFav) {
+      const { error } = await supabase.from("favoritos").delete().match({ user_id: userId, evento_id: selectedEvent.id });
+      if (!error) setUserFavorites((prev) => prev.filter((id) => id !== selectedEvent.id));
+    } else {
+      const { error } = await supabase.from("favoritos").insert({ user_id: userId, evento_id: selectedEvent.id });
+      if (!error) setUserFavorites((prev) => [...prev, selectedEvent.id]);
+    }
+  }, [userId, selectedEvent, userFavorites]);
 
   // 1. Setup Inicial
   useEffect(() => {
@@ -243,6 +267,7 @@ export default function Home() {
                     distance={event.distance || null}
                     userId={userId}
                     isFavoriteInicial={userFavorites.includes(event.id)}
+                    onSelect={handleSelectEvent}
                 />
                 ))
             )}
@@ -256,7 +281,8 @@ export default function Home() {
         `}>
           <MapComponent 
             events={processedEvents} 
-            userLocation={userLocation} 
+            userLocation={userLocation}
+            onSelectEvent={handleSelectEvent}
           />
           
           {/* Floating Action Button (Mobile) - Geolocalização Rápida */}
@@ -288,6 +314,22 @@ export default function Home() {
             <span className="text-xs font-bold">Mapa</span>
         </button>
       </nav>
+
+      {/* Event Detail Modal */}
+      {selectedEvent && (
+        <EventDetailModal
+          event={selectedEvent}
+          distance={selectedEvent.distance || null}
+          userLocation={userLocation}
+          userId={userId}
+          isFavorite={userFavorites.includes(selectedEvent.id)}
+          allEvents={processedEvents}
+          onClose={() => setSelectedEvent(null)}
+          onToggleFavorite={handleToggleFavorite}
+          onShowOnMap={handleShowOnMap}
+          onSelectEvent={handleSelectEvent}
+        />
+      )}
     </div>
   );
 }

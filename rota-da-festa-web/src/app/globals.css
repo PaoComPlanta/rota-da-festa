@@ -72,3 +72,19 @@ body {
 :root.dark ::-webkit-scrollbar-thumb:hover {
   background-color: #4b5563; /* gray-600 */
 }
+
+/* Modal slide-up animation */
+@keyframes slide-up {
+  from {
+    opacity: 0;
+    transform: translateY(100px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-slide-up {
+  animation: slide-up 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+}
