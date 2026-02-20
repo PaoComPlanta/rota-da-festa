@@ -139,6 +139,10 @@ CACHE_ESTADIOS = {
     "Palmeiras FC": {"lat": 41.5500, "lon": -8.4667, "local": "Campo de Palmeiras, Braga"},
     "Nogueiró e Tenões": {"lat": 41.5350, "lon": -8.4050, "local": "Campo de Nogueiró"},
     "SC Barcelos": {"lat": 41.5372, "lon": -8.6339, "local": "Estádio Cidade de Barcelos"},
+    # --- AF VIANA DO CASTELO (distritais) ---
+    "Monção": {"lat": 42.0769, "lon": -8.4822, "local": "Estádio Municipal de Monção"},
+    "Cerveira": {"lat": 41.9406, "lon": -8.7442, "local": "Campo Municipal de Vila Nova de Cerveira"},
+    "Limianos": {"lat": 41.7667, "lon": -8.6333, "local": "Campo dos Limianos, Ponte de Lima"},
     # --- AF AVEIRO (distritais) ---
     "ADC Lobão": {"lat": 40.9634, "lon": -8.4876, "local": "Parque de Jogos de Lobão"},
     "Fiães SC": {"lat": 40.9921, "lon": -8.5235, "local": "Estádio do Bolhão"},
@@ -173,8 +177,36 @@ CACHE_ESTADIOS = {
     "Lourosa": {"lat": 40.9833, "lon": -8.5333, "local": "Estádio do Lusitânia de Lourosa"},
 }
 
+# Centróides dos distritos/AFs — fallback quando geocoding falha
+DISTRICT_CENTROIDS = {
+    "braga": {"lat": 41.5503, "lon": -8.4270, "local": "Braga (aproximado)"},
+    "porto": {"lat": 41.1496, "lon": -8.6109, "local": "Porto (aproximado)"},
+    "aveiro": {"lat": 40.6405, "lon": -8.6538, "local": "Aveiro (aproximado)"},
+    "lisboa": {"lat": 38.7223, "lon": -9.1393, "local": "Lisboa (aproximado)"},
+    "leiria": {"lat": 39.7437, "lon": -8.8070, "local": "Leiria (aproximado)"},
+    "coimbra": {"lat": 40.2109, "lon": -8.4377, "local": "Coimbra (aproximado)"},
+    "viseu": {"lat": 40.6610, "lon": -7.9097, "local": "Viseu (aproximado)"},
+    "setúbal": {"lat": 38.5244, "lon": -8.8882, "local": "Setúbal (aproximado)"},
+    "santarém": {"lat": 39.2369, "lon": -8.6850, "local": "Santarém (aproximado)"},
+    "beja": {"lat": 38.0150, "lon": -7.8653, "local": "Beja (aproximado)"},
+    "faro": {"lat": 37.0194, "lon": -7.9304, "local": "Faro (aproximado)"},
+    "évora": {"lat": 38.5667, "lon": -7.9000, "local": "Évora (aproximado)"},
+    "bragança": {"lat": 41.8063, "lon": -6.7572, "local": "Bragança (aproximado)"},
+    "castelo branco": {"lat": 39.8228, "lon": -7.4906, "local": "Castelo Branco (aproximado)"},
+    "guarda": {"lat": 40.5373, "lon": -7.2676, "local": "Guarda (aproximado)"},
+    "viana": {"lat": 41.6936, "lon": -8.8319, "local": "Viana do Castelo (aproximado)"},
+    "viana do castelo": {"lat": 41.6936, "lon": -8.8319, "local": "Viana do Castelo (aproximado)"},
+    "vila real": {"lat": 41.2959, "lon": -7.7464, "local": "Vila Real (aproximado)"},
+    "portalegre": {"lat": 39.2967, "lon": -7.4317, "local": "Portalegre (aproximado)"},
+    "funchal": {"lat": 32.6669, "lon": -16.9241, "local": "Funchal (aproximado)"},
+    "ponta delgada": {"lat": 37.7483, "lon": -25.6666, "local": "Ponta Delgada (aproximado)"},
+    "angra do heroísmo": {"lat": 38.6545, "lon": -27.2177, "local": "Angra do Heroísmo (aproximado)"},
+    "horta": {"lat": 38.5342, "lon": -28.6300, "local": "Horta (aproximado)"},
+}
+
 # Palavras-chave de competições portuguesas
 PORTUGUESE_COMP_KEYWORDS = [
+    "portugal",
     "liga portugal", "primeira liga", "liga 2", "segunda liga", "meu super",
     "liga 3", "campeonato de portugal", "taça de portugal", "taça da liga",
     "supertaça", "liga revelação", "taça revelação",
@@ -182,8 +214,10 @@ PORTUGUESE_COMP_KEYWORDS = [
     "af coimbra", "af viseu", "af setúbal", "af santarém", "af beja",
     "af faro", "af évora", "af bragança", "af castelo branco",
     "af guarda", "af viana", "af vila real", "af portalegre",
-    "pro-nacional", "distrital", "divisão de honra",
-    "1ª divisão", "2ª divisão", "divisão elite",
+    "af funchal", "af ponta delgada", "af angra", "af horta",
+    "pro-nacional", "pró-nacional", "distrital", "divisão de honra",
+    "1ª divisão", "2ª divisão", "3ª divisão", "divisão elite",
+    "liga regional", "campeonato regional",
 ]
 
 # Nomes de equipas portuguesas (para detectar em competições internacionais)
@@ -199,23 +233,34 @@ def _team_match(pt_name: str, team_name: str) -> bool:
     return pl in tl and len(pl) / len(tl) > 0.55
 
 
-def geolocalizar_estadio(nome_equipa: str):
-    """Localiza o estádio de uma equipa, primeiro via cache, depois via geocoding."""
+def _extract_district(comp_text: str):
+    """Extrai o distrito/AF do texto da competição e devolve o centróide."""
+    cl = comp_text.lower()
+    for district, geo in DISTRICT_CENTROIDS.items():
+        if f"af {district}" in cl:
+            return geo
+    return None
+
+
+def geolocalizar_estadio(nome_equipa: str, comp_text: str = ""):
+    """Localiza o estádio de uma equipa com múltiplos fallbacks."""
+    # 1. Cache
     for k, v in CACHE_ESTADIOS.items():
         if _team_match(k, nome_equipa):
             return v
 
+    # 2. Nominatim: "Estádio {equipa}, Portugal"
     try:
         loc = geolocator.geocode(f"Estádio {nome_equipa}, Portugal", timeout=5)
         if loc:
             result = {"lat": loc.latitude, "lon": loc.longitude, "local": loc.address.split(",")[0]}
-            # Guardar na cache para próximas vezes
             CACHE_ESTADIOS[nome_equipa] = result
             return result
     except Exception:
         pass
+    time.sleep(1.1)
 
-    # Fallback: tentar só com o nome do clube + futebol
+    # 3. Nominatim: "{equipa} futebol, Portugal"
     try:
         loc = geolocator.geocode(f"{nome_equipa} futebol, Portugal", timeout=5)
         if loc:
@@ -224,6 +269,38 @@ def geolocalizar_estadio(nome_equipa: str):
             return result
     except Exception:
         pass
+    time.sleep(1.1)
+
+    # 4. Extrair localidade do nome (ex: "Águias de Alvite" → "Alvite, Portugal")
+    m = re.search(r'\b(?:de|da|do|dos|das)\s+(.+)', nome_equipa, re.IGNORECASE)
+    if m:
+        localidade = m.group(1).strip()
+        try:
+            loc = geolocator.geocode(f"{localidade}, Portugal", timeout=5)
+            if loc:
+                result = {"lat": loc.latitude, "lon": loc.longitude, "local": f"Campo em {localidade}"}
+                CACHE_ESTADIOS[nome_equipa] = result
+                return result
+        except Exception:
+            pass
+        time.sleep(1.1)
+
+    # 5. Nome da equipa como localidade (ex: "Serzedelo" → localidade em PT)
+    try:
+        loc = geolocator.geocode(f"{nome_equipa}, Portugal", timeout=5)
+        if loc:
+            result = {"lat": loc.latitude, "lon": loc.longitude, "local": f"Campo {nome_equipa}"}
+            CACHE_ESTADIOS[nome_equipa] = result
+            return result
+    except Exception:
+        pass
+    time.sleep(1.1)
+
+    # 6. Fallback: centróide do distrito extraído da competição
+    district_geo = _extract_district(comp_text)
+    if district_geo:
+        print(f"    📍 Fallback distrito para {nome_equipa}: {district_geo['local']}")
+        return district_geo
 
     return None
 
@@ -376,14 +453,19 @@ async def scrape_game_details(page, game_url: str) -> dict:
         html = await page.content()
         soup = BeautifulSoup(html, "html.parser")
 
-        # Extrair URLs das equipas (links com /equipa/ no href)
-        team_links = soup.select("a[href*='/equipa/']")
+        # Extrair URLs das equipas a partir do cabeçalho do jogo
         team_urls = []
+        header = soup.select_one("#match-header, .match-header, [class*='matchHeader'], [class*='match_header']")
+        team_links = (header or soup).select("a[href*='/equipa/']")
+        seen_urls = set()
         for tl in team_links:
             href = tl.get("href", "")
-            if "/equipa/" in href and href not in team_urls:
-                team_urls.append(href if href.startswith("http") else base + href)
-        
+            if "/equipa/" in href:
+                full = href if href.startswith("http") else base + href
+                if full not in seen_urls:
+                    seen_urls.add(full)
+                    team_urls.append(full)
+
         if len(team_urls) >= 2:
             result["url_equipa_casa"] = team_urls[0]
             result["url_equipa_fora"] = team_urls[1]
@@ -499,6 +581,24 @@ async def load_page(page, url: str, accept_cookies: bool = False,
 
             await page.wait_for_timeout(2000)
 
+            # Scroll para carregar conteúdo lazy-loaded (divisões inferiores)
+            for _ in range(10):
+                prev_height = await page.evaluate("document.body.scrollHeight")
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(1000)
+                new_height = await page.evaluate("document.body.scrollHeight")
+                if new_height == prev_height:
+                    break
+
+            # Clicar em "ver mais" / "show more" se existir
+            try:
+                more_btn = page.locator("a.ver_mais, a.show_more, button:has-text('mais'), a:has-text('Ver mais')")
+                while await more_btn.first.is_visible(timeout=1000):
+                    await more_btn.first.click()
+                    await page.wait_for_timeout(1500)
+            except Exception:
+                pass
+
             title = await page.title()
             if "cloudflare" in title.lower() or "just a moment" in title.lower():
                 raise RuntimeError("Cloudflare challenge detectado")
@@ -576,21 +676,26 @@ async def scrape_zerozero():
             skipped_geo = 0
             for jogo in all_games:
                 casa, fora = jogo["casa"], jogo["fora"]
+                comp = jogo["competicao"]
                 
                 if not is_portuguese_game(
-                    casa, fora, jogo["competicao"], jogo.get("has_pt_flag", False)
+                    casa, fora, comp, jogo.get("has_pt_flag", False)
                 ):
                     continue
 
-                geo = geolocalizar_estadio(casa) or geolocalizar_estadio(fora)
+                geo = (
+                    geolocalizar_estadio(casa, comp)
+                    or geolocalizar_estadio(fora, comp)
+                )
                 if not geo:
                     skipped_geo += 1
+                    print(f"    ⚠️ Sem geolocalização: {casa} vs {fora} ({comp})")
                     continue
 
                 jogo["_geo"] = geo
                 jogos_pt.append(jogo)
 
-            print(f"\n⚽ {len(jogos_pt)} jogos portugueses (descartados {skipped_geo} sem geolocalização)")
+            print(f"\n⚽ {len(jogos_pt)} jogos portugueses ({skipped_geo} sem geolocalização)")
 
             # Visitar páginas de detalhe dos jogos para extrair URLs
             print(f"🔗 A extrair detalhes de {len(jogos_pt)} jogos...")
