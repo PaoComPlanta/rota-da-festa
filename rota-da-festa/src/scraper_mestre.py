@@ -819,13 +819,14 @@ async def scrape_zerozero():
                 try:
                     print(f"  📋 {comp_name}...")
 
-                    # 1. Visitar página da competição/AF (com scroll para revelar edições)
-                    html = await load_page_fast(af_page, comp_url, scroll=True)
+                    # 1. Visitar página da competição/AF (load completo com scroll)
+                    html = await load_page(af_page, comp_url)
                     if not html:
                         continue
 
-                    # 2. Descobrir links de edições (ZeroZero lista as mais recentes primeiro)
                     comp_soup = BeautifulSoup(html, "html.parser")
+
+                    # 2. Recolher links de edições directamente
                     edition_urls = []
                     for link in comp_soup.select("a[href*='/edicao/']"):
                         href = link.get("href", "")
@@ -834,9 +835,42 @@ async def scrape_zerozero():
                             if full not in edition_urls:
                                 edition_urls.append(full)
 
-                    # Até 15 edições por AF (cobre seniores + formação)
-                    edition_urls = edition_urls[:15]
+                    # 3. Se não há edições, esta é uma página "umbrella" (AF)
+                    #    — descobrir sub-competições primeiro
+                    if not edition_urls:
+                        sub_comp_urls = []
+                        for link in comp_soup.select("a[href*='/competicao/']"):
+                            href = link.get("href", "")
+                            if href and "/competicao/" in href:
+                                full = href if href.startswith("http") else base + href
+                                if full != comp_url and full not in sub_comp_urls:
+                                    sub_comp_urls.append(full)
 
+                        sub_comp_urls = sub_comp_urls[:20]
+                        if sub_comp_urls:
+                            print(f"     📂 {len(sub_comp_urls)} sub-competições encontradas")
+
+                        for sc_url in sub_comp_urls:
+                            try:
+                                sc_html = await load_page_fast(af_page, sc_url)
+                                if not sc_html:
+                                    continue
+                                sc_soup = BeautifulSoup(sc_html, "html.parser")
+                                for link in sc_soup.select("a[href*='/edicao/']"):
+                                    href = link.get("href", "")
+                                    if href:
+                                        full = href if href.startswith("http") else base + href
+                                        if full not in edition_urls:
+                                            edition_urls.append(full)
+                                await asyncio.sleep(0.2)
+                            except Exception:
+                                continue
+
+                    # Limitar edições por AF
+                    edition_urls = edition_urls[:15]
+                    print(f"     📖 {len(edition_urls)} edições encontradas")
+
+                    # 4. Tentar extrair jogos directamente da página (alguns mostram próximos jogos)
                     if not edition_urls:
                         jogos = extract_games_from_page(html, comp_name)
                         for j in jogos:
@@ -845,9 +879,11 @@ async def scrape_zerozero():
                                 ids_vistos.add(gid)
                                 all_games.append(j)
                                 af_total += 1
+                        if jogos:
+                            print(f"     ✅ Directos: +{len(jogos)} jogos")
                         continue
 
-                    # 3. Para cada edição, visitar calendário e extrair jogos
+                    # 5. Para cada edição, visitar calendário e extrair jogos
                     for ed_url in edition_urls:
                         try:
                             cal_url = ed_url.rstrip("/") + "/calendario"
