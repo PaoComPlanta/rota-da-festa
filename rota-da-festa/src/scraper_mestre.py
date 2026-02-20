@@ -242,6 +242,10 @@ def _extract_district(comp_text: str):
     return None
 
 
+# Equipas que já falharam todas as tentativas de geocoding
+_GEO_FAILED = set()
+
+
 def geolocalizar_estadio(nome_equipa: str, comp_text: str = ""):
     """Localiza o estádio de uma equipa com múltiplos fallbacks."""
     # 1. Cache
@@ -249,27 +253,25 @@ def geolocalizar_estadio(nome_equipa: str, comp_text: str = ""):
         if _team_match(k, nome_equipa):
             return v
 
-    # 2. Nominatim: "Estádio {equipa}, Portugal"
-    try:
-        loc = geolocator.geocode(f"Estádio {nome_equipa}, Portugal", timeout=5)
-        if loc:
-            result = {"lat": loc.latitude, "lon": loc.longitude, "local": loc.address.split(",")[0]}
-            CACHE_ESTADIOS[nome_equipa] = result
-            return result
-    except Exception:
-        pass
-    time.sleep(1.1)
+    # 2. Já falhou antes? Ir direto ao fallback distrito
+    if nome_equipa in _GEO_FAILED:
+        district_geo = _extract_district(comp_text)
+        return district_geo
 
-    # 3. Nominatim: "{equipa} futebol, Portugal"
-    try:
-        loc = geolocator.geocode(f"{nome_equipa} futebol, Portugal", timeout=5)
-        if loc:
-            result = {"lat": loc.latitude, "lon": loc.longitude, "local": f"Campo {nome_equipa}"}
-            CACHE_ESTADIOS[nome_equipa] = result
-            return result
-    except Exception:
-        pass
-    time.sleep(1.1)
+    # 3. Nominatim: melhor query única
+    for query in [
+        f"Estádio {nome_equipa}, Portugal",
+        f"{nome_equipa} futebol, Portugal",
+    ]:
+        try:
+            loc = geolocator.geocode(query, timeout=5)
+            if loc:
+                result = {"lat": loc.latitude, "lon": loc.longitude, "local": loc.address.split(",")[0]}
+                CACHE_ESTADIOS[nome_equipa] = result
+                return result
+        except Exception:
+            pass
+        time.sleep(1.1)
 
     # 4. Extrair localidade do nome (ex: "Águias de Alvite" → "Alvite, Portugal")
     m = re.search(r'\b(?:de|da|do|dos|das)\s+(.+)', nome_equipa, re.IGNORECASE)
@@ -285,23 +287,14 @@ def geolocalizar_estadio(nome_equipa: str, comp_text: str = ""):
             pass
         time.sleep(1.1)
 
-    # 5. Nome da equipa como localidade (ex: "Serzedelo" → localidade em PT)
-    try:
-        loc = geolocator.geocode(f"{nome_equipa}, Portugal", timeout=5)
-        if loc:
-            result = {"lat": loc.latitude, "lon": loc.longitude, "local": f"Campo {nome_equipa}"}
-            CACHE_ESTADIOS[nome_equipa] = result
-            return result
-    except Exception:
-        pass
-    time.sleep(1.1)
-
-    # 6. Fallback: centróide do distrito extraído da competição
+    # 5. Fallback: centróide do distrito extraído da competição
     district_geo = _extract_district(comp_text)
     if district_geo:
         print(f"    📍 Fallback distrito para {nome_equipa}: {district_geo['local']}")
+        _GEO_FAILED.add(nome_equipa)
         return district_geo
 
+    _GEO_FAILED.add(nome_equipa)
     return None
 
 
@@ -579,10 +572,10 @@ async def load_page(page, url: str, accept_cookies: bool = False,
             except Exception:
                 pass
 
-            await page.wait_for_timeout(2000)
+            await page.wait_for_timeout(1500)
 
             # Scroll para carregar conteúdo lazy-loaded (divisões inferiores)
-            for _ in range(10):
+            for _ in range(5):
                 prev_height = await page.evaluate("document.body.scrollHeight")
                 await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
                 await page.wait_for_timeout(1000)
@@ -614,6 +607,20 @@ async def load_page(page, url: str, accept_cookies: bool = False,
                 print(f"  ❌ Falha após {retries + 1} tentativas: {e}")
                 return ""
     return ""
+
+
+async def load_page_fast(page, url: str) -> str:
+    """Carregamento rápido para Fase 2 — sem scrolling, sem retries."""
+    try:
+        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(1500)
+        title = await page.title()
+        if "cloudflare" in title.lower() or "just a moment" in title.lower():
+            return ""
+        return await page.content()
+    except Exception as e:
+        print(f"    ⚠️ Fast load falhou ({url}): {e}")
+        return ""
 
 
 def limpar_eventos_concluidos():
@@ -798,31 +805,33 @@ async def scrape_zerozero():
             print("\n🏟️  Fase 2: A descobrir jogos distritais e de formação...")
             af_page = await context.new_page()
             af_total = 0
+            current_year = datetime.now().year
+            season_years = {str(current_year), str(current_year - 1)}
 
             for comp_name, comp_url in PT_COMPETITION_URLS.items():
                 try:
                     print(f"  📋 {comp_name}...")
 
-                    # 1. Visitar página da competição/AF
-                    html = await load_page(af_page, comp_url)
+                    # 1. Visitar página da competição/AF (fast load)
+                    html = await load_page_fast(af_page, comp_url)
                     if not html:
                         continue
 
-                    # 2. Descobrir links de edições actuais
+                    # 2. Descobrir links de edições da época actual
                     comp_soup = BeautifulSoup(html, "html.parser")
                     edition_urls = []
                     for link in comp_soup.select("a[href*='/edicao/']"):
                         href = link.get("href", "")
                         if href:
                             full = href if href.startswith("http") else base + href
-                            if full not in edition_urls:
+                            # Filtrar: só edições da época actual
+                            if any(y in full for y in season_years) and full not in edition_urls:
                                 edition_urls.append(full)
 
-                    # Limitar a 20 edições por AF (evitar runaway)
-                    edition_urls = edition_urls[:20]
+                    # Máximo 5 edições por AF
+                    edition_urls = edition_urls[:5]
 
                     if not edition_urls:
-                        # Sem edições — tentar extrair jogos directamente da página
                         jogos = extract_games_from_page(html, comp_name)
                         for j in jogos:
                             gid = _extract_game_id(j["url"])
@@ -835,15 +844,13 @@ async def scrape_zerozero():
                     # 3. Para cada edição, visitar calendário e extrair jogos
                     for ed_url in edition_urls:
                         try:
-                            # Tentar URL do calendário directamente
                             cal_url = ed_url.rstrip("/") + "/calendario"
-                            html_cal = await load_page(af_page, cal_url)
+                            html_cal = await load_page_fast(af_page, cal_url)
                             if not html_cal:
-                                html_cal = await load_page(af_page, ed_url)
+                                html_cal = await load_page_fast(af_page, ed_url)
                             if not html_cal:
                                 continue
 
-                            # Extrair nome da competição da edição
                             ed_soup = BeautifulSoup(html_cal, "html.parser")
                             ed_h1 = ed_soup.select_one("h1, h2.header_title")
                             ed_comp = ed_h1.get_text(strip=True) if ed_h1 else comp_name
@@ -862,12 +869,12 @@ async def scrape_zerozero():
                             if novos_ed:
                                 print(f"     ✅ {ed_comp}: +{novos_ed} jogos")
 
-                            await asyncio.sleep(0.5)
+                            await asyncio.sleep(0.3)
                         except Exception as e:
                             print(f"     ⚠️ Erro edição {ed_url}: {e}")
                             continue
 
-                    await asyncio.sleep(0.3)
+                    await asyncio.sleep(0.2)
                 except Exception as e:
                     print(f"  ⚠️ Erro {comp_name}: {e}")
                     continue
@@ -902,25 +909,11 @@ async def scrape_zerozero():
 
             print(f"\n⚽ {len(jogos_pt)} jogos portugueses ({skipped_geo} sem geolocalização)")
 
-            # Visitar páginas de detalhe dos jogos para extrair URLs
-            print(f"🔗 A extrair detalhes de {len(jogos_pt)} jogos...")
-            detail_page = await context.new_page()
-            
+            # Construir resultados (sem visitar páginas individuais — frontend tem fallbacks)
             resultados = []
-            for i, jogo in enumerate(jogos_pt):
+            for jogo in jogos_pt:
                 casa, fora = jogo["casa"], jogo["fora"]
                 geo = jogo["_geo"]
-                
-                # Extrair detalhes da página do jogo (URLs das equipas + classificação)
-                details = {"url_equipa_casa": "", "url_equipa_fora": "", "url_classificacao": ""}
-                if jogo.get("url"):
-                    try:
-                        details = await scrape_game_details(detail_page, jogo["url"])
-                        if (i + 1) % 10 == 0:
-                            print(f"   📄 {i + 1}/{len(jogos_pt)} detalhes extraídos...")
-                        await asyncio.sleep(0.5)  # Rate limiting
-                    except Exception as e:
-                        print(f"    ⚠️ Saltar detalhes de {casa} vs {fora}: {e}")
 
                 cat, preco, escalao = classificar_evento(jogo["competicao"], f"{casa} vs {fora}")
 
@@ -932,9 +925,9 @@ async def scrape_zerozero():
                     "equipa_casa": casa,
                     "equipa_fora": fora,
                     "url_jogo": jogo.get("url", ""),
-                    "url_equipa_casa": details.get("url_equipa_casa", ""),
-                    "url_equipa_fora": details.get("url_equipa_fora", ""),
-                    "url_classificacao": details.get("url_classificacao", ""),
+                    "url_equipa_casa": "",
+                    "url_equipa_fora": "",
+                    "url_classificacao": "",
                     "data": jogo["data"],
                     "hora": jogo["hora"],
                     "local": geo["local"],
@@ -951,7 +944,6 @@ async def scrape_zerozero():
                 resultados.append(evento)
                 print(f"  ✅ {evento['nome']} ({jogo['data']} {jogo['hora']})")
 
-            await detail_page.close()
             return resultados, datas_ok
 
         except Exception as e:
