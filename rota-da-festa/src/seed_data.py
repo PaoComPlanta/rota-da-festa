@@ -58,6 +58,16 @@ COMPETICOES = {
 
 ESCALOES = ["Juniores A (Sub-19)", "Juvenis (Sub-17)", "Iniciados (Sub-15)", "Infantis (Sub-13)", "Benjamins", "Traquinas"]
 
+# Mapeamento de escalão longo → curto para o campo `escalao`
+ESCALAO_CURTO = {
+    "Juniores A (Sub-19)": "Sub-19",
+    "Juvenis (Sub-17)": "Sub-17",
+    "Iniciados (Sub-15)": "Sub-15",
+    "Infantis (Sub-13)": "Sub-13",
+    "Benjamins": "Benjamins",
+    "Traquinas": "Traquinas",
+}
+
 # Locais Culturais (Foco Minho)
 LOCAIS_CULTURA = [
     # Braga/Minho
@@ -122,7 +132,8 @@ def generate_events():
             if is_senior:
                 nome_jogo = f"{home['equipa']} vs {adversario}"
                 categoria = random.choice(COMPETICOES[zona])
-                preco = random.choice(["3€", "5€", "4€ (Sorteio Cabaz)", "Grátis"])
+                escalao = "Seniores"
+                preco = random.choice(["~3€ (estimado)", "~5€ (estimado)", "~3€ (estimado)", "Grátis"])
                 
                 # Seniores: Domingo à tarde
                 data_jogo = get_random_weekend_date(base_date, semana)
@@ -131,9 +142,10 @@ def generate_events():
                 desc = "Campeonato Distrital. Apoia a tua terra!"
             
             else:
-                escalao = random.choice(ESCALOES)
-                nome_jogo = f"{home['equipa']} ({escalao}) vs {adversario}"
-                categoria = f"Formação - {escalao}"
+                escalao_full = random.choice(ESCALOES)
+                escalao = ESCALAO_CURTO[escalao_full]
+                nome_jogo = f"{home['equipa']} ({escalao_full}) vs {adversario}"
+                categoria = f"Formação - {escalao_full}"
                 preco = "Grátis"
                 
                 # Formação: Sábado todo dia ou Domingo manhã
@@ -142,13 +154,14 @@ def generate_events():
                     data_jogo -= timedelta(days=1) # Preferência por Sábado
                 
                 hora = random.choice(["09:00", "10:30", "11:00", "15:00", "17:00"])
-                desc = f"Jogo de {escalao}. Vem ver o futuro do clube."
+                desc = f"Jogo de {escalao_full}. Vem ver o futuro do clube."
 
             eventos.append({
                 "id": count_id,
                 "nome": nome_jogo,
                 "tipo": "Futebol",
                 "categoria": categoria,
+                "escalao": escalao,
                 "data": data_jogo.strftime("%Y-%m-%d"),
                 "hora": hora,
                 "local": home["estadio"],
@@ -190,6 +203,7 @@ def generate_events():
                 "nome": random.choice(nomes),
                 "tipo": "Festa/Romaria",
                 "categoria": tipo,
+                "escalao": None,
                 "data": data_ev.strftime("%Y-%m-%d"),
                 "hora": hora,
                 "local": local["nome"],

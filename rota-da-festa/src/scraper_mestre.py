@@ -1,12 +1,13 @@
 import os
 import asyncio
 import re
+import time
 from datetime import datetime, timedelta
+from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from geopy.geocoders import Nominatim
 from playwright.async_api import async_playwright
-from bs4 import BeautifulSoup
 
 # Carregar envs
 load_dotenv()
@@ -129,6 +130,15 @@ PORTUGUESE_TEAMS = [
 ]
 
 
+def _team_match(pt_name: str, team_name: str) -> bool:
+    """Verifica se o nome da equipa portuguesa corresponde ao nome dado."""
+    pl = pt_name.lower()
+    tl = team_name.lower().strip()
+    if tl == pl:
+        return True
+    return pl in tl and len(pl) / len(tl) > 0.55
+
+
 def geolocalizar_estadio(nome_equipa: str):
     """Localiza o estádio de uma equipa, primeiro via cache, depois via geocoding."""
     for k, v in CACHE_ESTADIOS.items():
@@ -151,24 +161,12 @@ def is_portuguese_game(casa: str, fora: str, comp_text: str = "",
     if has_pt_flag:
         return True
     cl = comp_text.lower()
-    # Word boundary match para evitar "liga 2" em "bundesliga 25/26"
     if any(re.search(r'(?:^|\b)' + re.escape(kw) + r'(?:\b|$)', cl)
            for kw in PORTUGUESE_COMP_KEYWORDS):
         return True
     return any(
         _team_match(t, casa) or _team_match(t, fora) for t in PORTUGUESE_TEAMS
     )
-
-
-def _team_match(pt_name: str, team_name: str) -> bool:
-    """Verifica se o nome da equipa portuguesa corresponde ao nome dado.
-    Evita falsos positivos como 'Nacional' em 'Nacional Potosí'."""
-    pl = pt_name.lower()
-    tl = team_name.lower().strip()
-    if tl == pl:
-        return True
-    # Aceitar "SC Braga" → "Braga" mas não "Nacional Potosí" → "Nacional"
-    return pl in tl and len(pl) / len(tl) > 0.55
 
 
 def _extract_game_id(url: str) -> str:
@@ -183,7 +181,7 @@ def parse_games_from_html(html: str) -> list:
     ids_vistos = set()
     resultados = []
 
-    # --- 1. Tabela principal agenda_list (tem nomes completos de competições) ---
+    # --- 1. Tabela principal agenda_list ---
     for row in soup.select("table.agenda_list tr"):
         try:
             time_td = row.select_one("td.time")
@@ -209,6 +207,7 @@ def parse_games_from_html(html: str) -> list:
             game_text = game_link.get_text(strip=True)
             vs_match = re.match(r'(.+?)\s+(?:vs|\d+-\d+)\s+(.+)', game_text)
             if not vs_match:
+                # Tentar extrair equipas de outra forma se regex falhar
                 continue
             casa = vs_match.group(1).strip()
             fora = vs_match.group(2).strip()
@@ -221,7 +220,6 @@ def parse_games_from_html(html: str) -> list:
             comp_el = info_td.select_one("div.match_info")
             comp_text = comp_el.get_text(strip=True) if comp_el else ""
 
-            # Bandeira PT apenas na div da competição (evita falsos positivos)
             comp_img = info_td.select_one("div.main_info div.image")
             has_pt_flag = bool(comp_img and "flag:PT" in str(comp_img))
 
@@ -234,7 +232,7 @@ def parse_games_from_html(html: str) -> list:
         except Exception:
             continue
 
-    # --- 2. Elementos li.game (matchbox / listas laterais) ---
+    # --- 2. Elementos li.game (matchbox) ---
     for li in soup.select("li.game"):
         try:
             link = li.select_one(
@@ -253,8 +251,6 @@ def parse_games_from_html(html: str) -> list:
                 continue
             casa = teams[0].get_text(strip=True)
             fora = teams[1].get_text(strip=True)
-            if not casa or not fora:
-                continue
 
             url_date = re.search(
                 r'/(?:jogo|live-ao-minuto)/(\d{4}-\d{2}-\d{2})', game_url
@@ -266,6 +262,7 @@ def parse_games_from_html(html: str) -> list:
             if date_el:
                 tm = re.search(r'(\d{2}:\d{2})', date_el.get_text())
                 hora = tm.group(1) if tm else None
+            
             if not hora:
                 time_tag = li.select_one("span.tag.time")
                 if time_tag:
@@ -279,7 +276,6 @@ def parse_games_from_html(html: str) -> list:
             comp_el = li.select_one("div.comp")
             comp_text = re.sub(r'\s+', ' ', comp_el.get_text(strip=True)) if comp_el else ""
 
-            # Bandeira PT apenas na div da competição
             comp_img = li.select_one("div.comp div.image")
             has_pt_flag = bool(comp_img and "flag:PT" in str(comp_img))
 
@@ -295,23 +291,64 @@ def parse_games_from_html(html: str) -> list:
     return resultados
 
 
-def classificar_evento(comp_text: str):
-    """Retorna (categoria, preço) baseado no texto da competição."""
+def extrair_escalao(comp_text: str, nome_jogo: str = "") -> str:
+    """Extrai o escalão do texto da competição ou nome do jogo."""
+    texto = (comp_text + " " + nome_jogo).lower()
+    if any(x in texto for x in ["sub-19", "juniores a", "juniores"]):
+        return "Sub-19"
+    if any(x in texto for x in ["sub-17", "juvenis"]):
+        return "Sub-17"
+    if any(x in texto for x in ["sub-15", "iniciados"]):
+        return "Sub-15"
+    if any(x in texto for x in ["sub-13", "infantis"]):
+        return "Sub-13"
+    if any(x in texto for x in ["sub-11", "benjamins", "benjamim"]):
+        return "Benjamins"
+    if any(x in texto for x in ["sub-9", "sub-7", "traquinas", "petizes"]):
+        return "Traquinas"
+    if any(x in texto for x in ["revelação", "sub-23"]):
+        return "Sub-23"
+    return "Seniores"
+
+
+def classificar_evento(comp_text: str, nome_jogo: str = ""):
+    """Retorna (categoria, preço, escalão) baseado no texto da competição.
+
+    Preços médios ponderados do futebol português (fontes: Liga Portugal, clubes):
+    - Liga Portugal Betclic: €10-25, média ~15€
+    - Liga Portugal 2: €5-15, média ~10€
+    - Taça de Portugal: €5-15, média ~8€
+    - Liga 3 / Camp. Portugal: €3-7, média ~5€
+    - Distrital (Seniores): €2-5, média ~3€
+    - Competições Europeias: €15-60, média ~25€
+    - Formação (todos os escalões): Grátis
+    """
     cl = comp_text.lower()
-    if any(x in cl for x in ["liga portugal", "primeira liga", "liga 3"]):
-        return "Liga Portugal", "15€+"
+    escalao = extrair_escalao(comp_text, nome_jogo)
+
+    # Formação é sempre grátis
+    if escalao not in ("Seniores", "Sub-23"):
+        return f"Formação - {escalao}", "Grátis", escalao
+
+    if any(x in cl for x in ["liga portugal", "primeira liga"]):
+        return "Liga Portugal", "~15€ (estimado)", escalao
+    if any(x in cl for x in ["liga 3"]):
+        return "Liga 3", "~5€ (estimado)", escalao
     if any(x in cl for x in ["liga 2", "segunda liga", "meu super"]):
-        return "Liga Portugal 2", "10€"
+        return "Liga Portugal 2", "~10€ (estimado)", escalao
     if any(x in cl for x in ["champions", "europa league", "conference"]):
-        return "Competição Europeia", "20€+"
+        return "Competição Europeia", "~25€ (estimado)", escalao
     if any(x in cl for x in ["taça de portugal", "taca de portugal"]):
-        return "Taça de Portugal", "10€"
-    if any(x in cl for x in ["revelação", "sub-19", "sub-17", "sub-15",
-                               "juniores", "juvenis", "iniciados"]):
-        return "Formação", "Grátis"
+        return "Taça de Portugal", "~8€ (estimado)", escalao
+    if any(x in cl for x in ["taça da liga"]):
+        return "Taça da Liga", "~8€ (estimado)", escalao
+    if any(x in cl for x in ["revelação", "sub-23"]):
+        return "Liga Revelação", "Grátis", "Sub-23"
     if any(x in cl for x in ["pro-nacional", "campeonato de portugal"]):
-        return "Campeonato de Portugal", "5€"
-    return "Futebol Distrital", "5€"
+        return "Campeonato de Portugal", "~5€ (estimado)", escalao
+    if any(x in cl for x in ["divisão de honra"]):
+        return "Divisão de Honra", "~3€ (estimado)", escalao
+    return "Futebol Distrital", "~3€ (estimado)", escalao
 
 
 async def load_page(page, url: str, accept_cookies: bool = False,
@@ -331,6 +368,7 @@ async def load_page(page, url: str, accept_cookies: bool = False,
                     pass
 
             try:
+                # Esperar por qualquer um dos layouts comuns
                 await page.wait_for_selector(
                     "li.game, table.agenda_list", timeout=15000
                 )
@@ -411,25 +449,31 @@ async def scrape_zerozero():
                         novos += 1
                 print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
 
-            # Filtrar: manter apenas jogos portugueses
+            # Filtrar: manter apenas jogos portugueses relevantes
             resultados = []
             for jogo in all_games:
                 casa, fora = jogo["casa"], jogo["fora"]
+                
+                # Filtro principal: É um jogo português?
                 if not is_portuguese_game(
                     casa, fora, jogo["competicao"], jogo.get("has_pt_flag", False)
                 ):
                     continue
 
+                # Filtro secundário: Conseguimos geolocalizar?
                 geo = geolocalizar_estadio(casa) or geolocalizar_estadio(fora)
                 if not geo:
+                    # Opcional: tentar geocoding se falhar cache
+                    # Mas para evitar spam de API, confiamos na cache grande + geocoding limitado
                     continue
 
-                cat, preco = classificar_evento(jogo["competicao"])
+                cat, preco, escalao = classificar_evento(jogo["competicao"], f"{casa} vs {fora}")
 
                 evento = {
                     "nome": f"{casa} vs {fora}",
                     "tipo": "Futebol",
                     "categoria": cat,
+                    "escalao": escalao,
                     "data": jogo["data"],
                     "hora": jogo["hora"],
                     "local": geo["local"],

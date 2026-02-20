@@ -36,6 +36,7 @@ export default function Home() {
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(DEFAULT_BRAGA);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("Todos");
+  const [filterEscalao, setFilterEscalao] = useState("Todos");
   const [activeTab, setActiveTab] = useState<"lista" | "mapa">("lista");
   const [userId, setUserId] = useState<string | null>(null);
   const [userFavorites, setUserFavorites] = useState<number[]>([]);
@@ -88,7 +89,8 @@ export default function Home() {
     let filtered = events.filter((ev) => {
       const matchesSearch = ev.nome.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = filterType === "Todos" || ev.tipo === filterType;
-      return matchesSearch && matchesType;
+      const matchesEscalao = filterEscalao === "Todos" || ev.escalao === filterEscalao;
+      return matchesSearch && matchesType && matchesEscalao;
     });
 
     if (userLocation) {
@@ -101,7 +103,7 @@ export default function Home() {
     }
 
     return filtered;
-  }, [events, userLocation, searchTerm, filterType]);
+  }, [events, userLocation, searchTerm, filterType, filterEscalao]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -184,7 +186,7 @@ export default function Home() {
                     key={type}
                     role="tab"
                     aria-selected={isActive}
-                    onClick={() => setFilterType(type)}
+                    onClick={() => { setFilterType(type); if (type !== "Futebol") setFilterEscalao("Todos"); }}
                     className={`
                       px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none
                       ${isActive 
@@ -198,6 +200,32 @@ export default function Home() {
                 );
               })}
             </div>
+
+            {/* Filtro de Escalão (só visível para Futebol ou Todos) */}
+            {filterType !== "Festa/Romaria" && (
+              <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar" role="tablist" aria-label="Filtros de escalão">
+                {["Todos", "Seniores", "Sub-23", "Sub-19", "Sub-17", "Sub-15", "Sub-13", "Benjamins", "Traquinas"].map((esc) => {
+                  const isActive = filterEscalao === esc;
+                  return (
+                    <button
+                      key={esc}
+                      role="tab"
+                      aria-selected={isActive}
+                      onClick={() => setFilterEscalao(esc)}
+                      className={`
+                        px-3 py-1 rounded-full text-[10px] font-bold whitespace-nowrap transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none
+                        ${isActive
+                          ? "bg-blue-600 text-white shadow-md"
+                          : "bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400 hover:bg-gray-200 dark:hover:bg-gray-700"
+                        }
+                      `}
+                    >
+                      {esc}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
 
           {/* Lista Scrollável */}

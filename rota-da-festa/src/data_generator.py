@@ -39,12 +39,13 @@ def gerar_dados():
             "id": i + 1,
             "nome": nome,
             "tipo": "Futebol",
+            "escalao": "Seniores",
             "data": data_evento.strftime("%Y-%m-%d"),
             "hora": "16:00",
             "local": local,
             "latitude": coord["lat"],
             "longitude": coord["lon"],
-            "preco": f"{random.randint(5, 15)}€",
+            "preco": "~5€ (estimado)",
             "descricao": "Campeonato Distrital e Nacional.",
             # Link direto para Google Maps
             "url_maps": f"https://www.google.com/maps/search/?api=1&query={coord['lat']},{coord['lon']}"
@@ -67,6 +68,7 @@ def gerar_dados():
             "id": i + 6, # Continuar IDs
             "nome": nome,
             "tipo": "Festa/Romaria",
+            "escalao": None,
             "data": data_evento.strftime("%Y-%m-%d"),
             "hora": "20:00",
             "local": local,

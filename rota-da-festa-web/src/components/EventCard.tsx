@@ -48,8 +48,8 @@ export default function EventCard({ event, distance, userId, isFavoriteInicial }
     `}>
       <div className="flex justify-between items-start">
         <div className="flex-1">
-          {/* Badge Tipo */}
-          <div className="flex items-center gap-2 mb-2">
+          {/* Badge Tipo + Escalão */}
+          <div className="flex items-center gap-2 mb-2 flex-wrap">
             <span className={`
               text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider
               ${isFutebol 
@@ -59,6 +59,17 @@ export default function EventCard({ event, distance, userId, isFavoriteInicial }
             `}>
               {event.tipo}
             </span>
+            {isFutebol && event.escalao && (
+              <span className={`
+                text-[10px] font-bold px-2 py-0.5 rounded-full tracking-wider
+                ${event.escalao === "Seniores"
+                  ? "bg-blue-100 text-blue-800 dark:bg-blue-900 dark:text-blue-100"
+                  : "bg-amber-100 text-amber-800 dark:bg-amber-900 dark:text-amber-100"
+                }
+              `}>
+                {event.escalao}
+              </span>
+            )}
             {distance !== null && (
               <span className="text-xs text-gray-500 dark:text-gray-400 font-medium">
                 {distance.toFixed(1)} km
@@ -82,6 +93,9 @@ export default function EventCard({ event, distance, userId, isFavoriteInicial }
             <span className="text-gray-500 dark:text-gray-400">🕒 {event.hora}</span>
             <span className="font-bold text-gray-900 dark:text-white px-2 py-0.5 bg-white dark:bg-gray-600 rounded shadow-sm">
               {event.preco}
+              {event.preco?.includes("estimado") && (
+                <span className="text-[8px] text-amber-600 dark:text-amber-400 ml-0.5" title="Preço médio estimado">⚠</span>
+              )}
             </span>
           </div>
         </div>

@@ -70,15 +70,16 @@ def gerar_eventos_para_db():
             "nome": f"{home['equipa']} vs {adversario}",
             "tipo": "Futebol",
             "categoria": "Distrital / Campeonato",
+            "escalao": "Seniores",
             "data": data_jogo.strftime("%Y-%m-%d"),
             "hora": "15:00",
             "local": home["estadio"],
             "latitude": home["lat"],
             "longitude": home["lon"],
-            "preco": "5€",
+            "preco": "~3€ (estimado)",
             "descricao": "Jogo oficial do campeonato distrital.",
             "url_maps": f"https://www.google.com/maps/search/?api=1&query={home['lat']},{home['lon']}",
-            "status": "aprovado" # Importante: Scraper aprova automaticamente
+            "status": "aprovado"
         })
 
     # 2. Gerar Cultura
@@ -91,6 +92,7 @@ def gerar_eventos_para_db():
             "nome": f"{tipo} de {local['zona']}",
             "tipo": "Cultura/Lazer",
             "categoria": tipo,
+            "escalao": None,
             "data": data_ev.strftime("%Y-%m-%d"),
             "hora": "21:30",
             "local": local["nome"],

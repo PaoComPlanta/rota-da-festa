@@ -13,6 +13,7 @@ interface Evento {
   latitude: number;
   longitude: number;
   tipo: string;
+  escalao: string | null;
   data: string;
   hora: string;
   local: string;
