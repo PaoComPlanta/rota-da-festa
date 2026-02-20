@@ -154,52 +154,24 @@ function getDistanceBetween(lat1: number, lon1: number, lat2: number, lon2: numb
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-function buildZeroZeroSearch(team: string): string {
+function buildTeamUrl(event: any, isHome: boolean): string {
+  const directUrl = isHome ? event.url_equipa_casa : event.url_equipa_fora;
+  if (directUrl) return directUrl;
+  // Fallback: pesquisa direta no ZeroZero (não Google)
+  const team = isHome ? event.equipa_casa : event.equipa_fora;
   return `https://www.zerozero.pt/search.php?search=${encodeURIComponent(team)}`;
 }
 
-/**
- * Constrói URL para a classificação da competição no ZeroZero.
- * Usa Google com site:zerozero.pt para encontrar a página certa.
- */
 function buildClassificationUrl(event: any): string {
+  // URL direto da classificação (extraído pelo scraper)
+  if (event.url_classificacao) return event.url_classificacao;
+
+  // Fallback: pesquisa no ZeroZero (não Google)
   let comp = event.categoria || "";
-
-  // Para formação, pesquisar pela equipa da casa + escalão (mais fiável)
   if (comp.startsWith("Formação")) {
-    const escalaoName = comp.replace("Formação - ", "").replace(/[()]/g, "").trim();
-    if (event.equipa_casa) {
-      const query = `site:zerozero.pt "${event.equipa_casa}" ${escalaoName} classificação`;
-      return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
-    }
-    comp = escalaoName;
+    comp = comp.replace("Formação - ", "").replace(/[()]/g, "").trim();
   }
-
-  // Tentar extrair competição da descrição se disponível
-  const descMatch = event.descricao?.match(/Jogo de .+?\.\s*(.+)/);
-  const rawDesc = descMatch ? descMatch[1].trim() : "";
-  // Usar descrição se não for texto genérico
-  if (rawDesc && !/Vem ver|Apoia a tua|futuro do clube/i.test(rawDesc)) {
-    comp = rawDesc;
-  }
-
-  // Limpar: remover jornada, fase, época inline, pontos finais
-  comp = comp
-    .replace(/\(Jornada\s*\d+\)/gi, "")
-    .replace(/\bFase\s+[\wÀ-ú.]+(?:\s+[\wÀ-ú.]+)*/gi, "")
-    .replace(/\b\d{2}\/\d{2,4}\b/g, "")
-    .replace(/[.]+$/g, "")
-    .replace(/\s{2,}/g, " ")
-    .trim();
-
-  // Temporada atual
-  const now = new Date();
-  const year = now.getMonth() >= 7 ? now.getFullYear() : now.getFullYear() - 1;
-  const season = `${year}/${year + 1}`;
-
-  // Sem aspas no nome da competição para resultados mais abrangentes
-  const query = `site:zerozero.pt classificação ${comp} ${season}`;
-  return `https://www.google.com/search?q=${encodeURIComponent(query)}`;
+  return `https://www.zerozero.pt/search.php?search=${encodeURIComponent(comp + " classificação")}`;
 }
 
 function formatWeekday(dateStr: string): string {
@@ -513,7 +485,7 @@ export default function EventDetailModal({
                 <div className="flex items-center justify-between mb-3">
                   <div className="flex-1 text-center min-w-0">
                     <p className="font-extrabold text-gray-900 dark:text-white text-base truncate px-1">{event.equipa_casa}</p>
-                    <a href={buildZeroZeroSearch(event.equipa_casa)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                    <a href={buildTeamUrl(event, true)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
                       Ver no ZeroZero →
                     </a>
                   </div>
@@ -522,7 +494,7 @@ export default function EventDetailModal({
                   </div>
                   <div className="flex-1 text-center min-w-0">
                     <p className="font-extrabold text-gray-900 dark:text-white text-base truncate px-1">{event.equipa_fora}</p>
-                    <a href={buildZeroZeroSearch(event.equipa_fora)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
+                    <a href={buildTeamUrl(event, false)} target="_blank" rel="noopener noreferrer" className="text-[10px] text-blue-600 dark:text-blue-400 hover:underline font-medium">
                       Ver no ZeroZero →
                     </a>
                   </div>

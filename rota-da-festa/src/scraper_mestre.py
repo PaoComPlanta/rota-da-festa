@@ -26,7 +26,7 @@ supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 geolocator = Nominatim(user_agent="rota_da_festa_bot_v5")
 
 # ========================================================================
-# Cache de estádios — todas as equipas profissionais e semi-profissionais
+# Cache de estádios — profissionais + semi-profissionais + distritais
 # ========================================================================
 CACHE_ESTADIOS = {
     # --- Liga Portugal (Primeira Liga) ---
@@ -89,18 +89,88 @@ CACHE_ESTADIOS = {
     "Espinho": {"lat": 41.0068, "lon": -8.6291, "local": "Estádio Comendador Manuel Violas"},
     "SC Espinho": {"lat": 41.0068, "lon": -8.6291, "local": "Estádio Comendador Manuel Violas"},
     "Leça": {"lat": 41.1833, "lon": -8.7000, "local": "Estádio do Leça FC"},
+    "Leça FC": {"lat": 41.1833, "lon": -8.7000, "local": "Estádio do Leça FC"},
     "Maia": {"lat": 41.2333, "lon": -8.6167, "local": "Estádio Prof. Dr. José Vieira de Carvalho"},
     "Limianos": {"lat": 41.7667, "lon": -8.5833, "local": "Estádio Municipal de Ponte de Lima"},
-    # --- Regionais ---
-    "Académico": {"lat": 41.5503, "lon": -8.4270, "local": "Estádio 1º de Maio, Braga"},
+    # --- AF BRAGA (distritais) ---
     "Merelinense": {"lat": 41.5768, "lon": -8.4482, "local": "Estádio João Soares Vieira"},
+    "Merelinense FC": {"lat": 41.5768, "lon": -8.4482, "local": "Estádio João Soares Vieira"},
     "Vilaverdense": {"lat": 41.6489, "lon": -8.4356, "local": "Campo Cruz do Reguengo"},
+    "Vilaverdense FC": {"lat": 41.6489, "lon": -8.4356, "local": "Campo Cruz do Reguengo"},
+    "Maria da Fonte": {"lat": 41.6032, "lon": -8.2589, "local": "Estádio Moinhos Novos"},
+    "Dumiense": {"lat": 41.5621, "lon": -8.4328, "local": "Campo Celestino Lobo"},
+    "Dumiense FC": {"lat": 41.5621, "lon": -8.4328, "local": "Campo Celestino Lobo"},
+    "GD Joane": {"lat": 41.4333, "lon": -8.4167, "local": "Estádio de Barreiros, Joane"},
+    "Brito SC": {"lat": 41.4886, "lon": -8.3582, "local": "Parque de Jogos do Brito SC"},
+    "Brito": {"lat": 41.4886, "lon": -8.3582, "local": "Parque de Jogos do Brito SC"},
+    "Santa Maria FC": {"lat": 41.5333, "lon": -8.5333, "local": "Estádio da Devesa"},
+    "Vieira SC": {"lat": 41.6333, "lon": -8.1333, "local": "Estádio Municipal de Vieira"},
+    "AD Ninense": {"lat": 41.4667, "lon": -8.5500, "local": "Complexo Desportivo de Nine"},
+    "GD Prado": {"lat": 41.6000, "lon": -8.4667, "local": "Complexo Desportivo do Faial"},
+    "Pevidém SC": {"lat": 41.4167, "lon": -8.3333, "local": "Parque Albano Martins Coelho Lima"},
+    "Pevidém": {"lat": 41.4167, "lon": -8.3333, "local": "Parque Albano Martins Coelho Lima"},
+    "Caçadores Taipas": {"lat": 41.4833, "lon": -8.3500, "local": "Estádio do Montinho"},
+    "Caçadores das Taipas": {"lat": 41.4833, "lon": -8.3500, "local": "Estádio do Montinho"},
+    "Berço SC": {"lat": 41.4667, "lon": -8.3333, "local": "Complexo Desportivo de Ponte"},
+    "CD Celeirós": {"lat": 41.5167, "lon": -8.4500, "local": "Parque Desportivo de Celeirós"},
+    "Forjães SC": {"lat": 41.6167, "lon": -8.7333, "local": "Estádio Horácio Queirós"},
+    "Desportivo de Ronfe": {"lat": 41.4333, "lon": -8.3667, "local": "Estádio do Desportivo de Ronfe"},
+    "Sandineneses": {"lat": 41.4667, "lon": -8.3833, "local": "Complexo Desportivo D. Maria Teresa"},
+    "Académico": {"lat": 41.5503, "lon": -8.4270, "local": "Estádio 1º de Maio, Braga"},
     "Sanjoanense": {"lat": 41.0333, "lon": -8.5000, "local": "Estádio da Sanjoanense"},
+    "Caldelas SC": {"lat": 41.5833, "lon": -8.2667, "local": "Campo Municipal de Caldelas"},
+    "Taipas": {"lat": 41.4833, "lon": -8.3500, "local": "Estádio do Montinho"},
+    "FC Penafiel": {"lat": 41.2083, "lon": -8.2833, "local": "Estádio Municipal 25 de Abril"},
+    "Ribeirão": {"lat": 41.5000, "lon": -8.4667, "local": "Campo de Ribeirão"},
+    "Arões SC": {"lat": 41.5333, "lon": -8.2667, "local": "Campo de Arões"},
+    "Arões": {"lat": 41.5333, "lon": -8.2667, "local": "Campo de Arões"},
+    "Serzedelo": {"lat": 41.4333, "lon": -8.3333, "local": "Campo de Serzedelo"},
+    "Martim": {"lat": 41.5333, "lon": -8.3500, "local": "Campo de Martim"},
+    "Cabreiros": {"lat": 41.5833, "lon": -8.4333, "local": "Campo de Cabreiros"},
+    "Esposende": {"lat": 41.5333, "lon": -8.7833, "local": "Estádio Municipal de Esposende"},
+    "SC Esposende": {"lat": 41.5333, "lon": -8.7833, "local": "Estádio Municipal de Esposende"},
+    "Bairro": {"lat": 41.5000, "lon": -8.3500, "local": "Campo do Bairro"},
+    "Santa Eulália": {"lat": 41.5833, "lon": -8.3500, "local": "Campo de Santa Eulália"},
+    "Porto d'Ave": {"lat": 41.5167, "lon": -8.3167, "local": "Campo de Porto d'Ave"},
+    "Ruilhe": {"lat": 41.5667, "lon": -8.4833, "local": "Campo de Ruilhe"},
+    "Pedralva": {"lat": 41.5500, "lon": -8.4000, "local": "Campo de Pedralva"},
+    "Maximinos": {"lat": 41.5667, "lon": -8.4333, "local": "Campo de Maximinos"},
+    "Real SC Braga": {"lat": 41.5503, "lon": -8.4270, "local": "Estádio 1º de Maio, Braga"},
+    "Palmeiras FC": {"lat": 41.5500, "lon": -8.4667, "local": "Campo de Palmeiras, Braga"},
+    "Nogueiró e Tenões": {"lat": 41.5350, "lon": -8.4050, "local": "Campo de Nogueiró"},
+    "SC Barcelos": {"lat": 41.5372, "lon": -8.6339, "local": "Estádio Cidade de Barcelos"},
+    # --- AF AVEIRO (distritais) ---
+    "ADC Lobão": {"lat": 40.9634, "lon": -8.4876, "local": "Parque de Jogos de Lobão"},
+    "Fiães SC": {"lat": 40.9921, "lon": -8.5235, "local": "Estádio do Bolhão"},
+    "Fiães": {"lat": 40.9921, "lon": -8.5235, "local": "Estádio do Bolhão"},
+    "RD Águeda": {"lat": 40.5744, "lon": -8.4485, "local": "Estádio Municipal de Águeda"},
+    "Águeda": {"lat": 40.5744, "lon": -8.4485, "local": "Estádio Municipal de Águeda"},
+    "Ovarense": {"lat": 40.8594, "lon": -8.6269, "local": "Estádio Municipal de Ovar"},
+    "Pampilhosa": {"lat": 40.4500, "lon": -8.3833, "local": "Campo da Pampilhosa"},
+    "Estarreja": {"lat": 40.7558, "lon": -8.5711, "local": "Estádio Municipal de Estarreja"},
     "Anadia": {"lat": 40.4357, "lon": -8.4357, "local": "Estádio Municipal de Anadia"},
     "Lusitano de Évora": {"lat": 38.5667, "lon": -7.9000, "local": "Estádio do Lusitano de Évora"},
     "Vitória Setúbal": {"lat": 38.5244, "lon": -8.8882, "local": "Estádio do Bonfim"},
     "Leiria": {"lat": 39.7500, "lon": -8.8000, "local": "Estádio Dr. Magalhães Pessoa"},
     "Covilhã": {"lat": 40.2833, "lon": -7.5000, "local": "Estádio Santos Pinto"},
+    # --- AF PORTO (distritais) ---
+    "SC Rio Tinto": {"lat": 41.1764, "lon": -8.5583, "local": "Estádio Cidade de Rio Tinto"},
+    "Rio Tinto": {"lat": 41.1764, "lon": -8.5583, "local": "Estádio Cidade de Rio Tinto"},
+    "Gondomar SC": {"lat": 41.1444, "lon": -8.5333, "local": "Estádio de São Miguel, Gondomar"},
+    "Maia Lidador": {"lat": 41.2333, "lon": -8.6167, "local": "Estádio Prof. Dr. José Vieira de Carvalho"},
+    "Pedras Rubras": {"lat": 41.2333, "lon": -8.6833, "local": "Campo de Pedras Rubras"},
+    "Dragões Sandinenses": {"lat": 41.3167, "lon": -8.5500, "local": "Campo dos Dragões Sandinenses"},
+    "Vila Meã": {"lat": 41.1500, "lon": -8.3833, "local": "Campo de Vila Meã"},
+    "Foz": {"lat": 41.1500, "lon": -8.6833, "local": "Campo da Foz do Douro"},
+    "Canidelo": {"lat": 41.1333, "lon": -8.6500, "local": "Campo de Canidelo"},
+    "Infesta": {"lat": 41.2000, "lon": -8.6000, "local": "Campo de Infesta"},
+    "Padroense": {"lat": 41.1833, "lon": -8.6167, "local": "Campo do Padroense FC"},
+    "Salgueiros": {"lat": 41.1500, "lon": -8.6333, "local": "Estádio Engenheiro Vidal Pinheiro"},
+    "Campanhã": {"lat": 41.1500, "lon": -8.5833, "local": "Campo de Campanhã"},
+    "Águias Moreira": {"lat": 41.1833, "lon": -8.7333, "local": "Campo das Águias de Moreira"},
+    "Nogueirense": {"lat": 41.2333, "lon": -8.5500, "local": "Campo do Nogueirense"},
+    "Lusitânia Lourosa": {"lat": 40.9833, "lon": -8.5333, "local": "Estádio do Lusitânia de Lourosa"},
+    "Lourosa": {"lat": 40.9833, "lon": -8.5333, "local": "Estádio do Lusitânia de Lourosa"},
 }
 
 # Palavras-chave de competições portuguesas
@@ -110,24 +180,14 @@ PORTUGUESE_COMP_KEYWORDS = [
     "supertaça", "liga revelação", "taça revelação",
     "af braga", "af porto", "af aveiro", "af lisboa", "af leiria",
     "af coimbra", "af viseu", "af setúbal", "af santarém", "af beja",
+    "af faro", "af évora", "af bragança", "af castelo branco",
+    "af guarda", "af viana", "af vila real", "af portalegre",
     "pro-nacional", "distrital", "divisão de honra",
+    "1ª divisão", "2ª divisão", "divisão elite",
 ]
 
 # Nomes de equipas portuguesas (para detectar em competições internacionais)
-PORTUGUESE_TEAMS = [
-    "Benfica", "Sporting", "FC Porto", "SC Braga", "Vitória SC", "Moreirense",
-    "Famalicão", "Gil Vicente", "Rio Ave", "Arouca", "Boavista", "Casa Pia",
-    "Estoril", "Estrela Amadora", "Est. Amadora", "Santa Clara", "Nacional",
-    "AVS", "Farense", "Leixões", "FC Vizela", "Tondela", "CD Tondela",
-    "Académica", "Penafiel", "Feirense", "Oliveirense", "Chaves",
-    "Desportivo de Chaves", "Portimonense", "Marítimo", "Paços de Ferreira",
-    "Paços Ferreira", "Varzim", "Trofense", "Mafra", "Alverca", "Benfica B",
-    "Porto B", "Beira-Mar", "Sp. Covilhã", "Académico Viseu", "Real SC",
-    "Belenenses", "Felgueiras", "Fafe", "AD Fafe", "Amarante", "Tirsense",
-    "Gondomar", "Espinho", "SC Espinho", "Leça", "Maia", "Limianos",
-    "Académico", "Merelinense", "Vilaverdense", "Sanjoanense", "Anadia",
-    "Vitória Setúbal", "Leiria", "Covilhã",
-]
+PORTUGUESE_TEAMS = list(CACHE_ESTADIOS.keys())
 
 
 def _team_match(pt_name: str, team_name: str) -> bool:
@@ -148,7 +208,20 @@ def geolocalizar_estadio(nome_equipa: str):
     try:
         loc = geolocator.geocode(f"Estádio {nome_equipa}, Portugal", timeout=5)
         if loc:
-            return {"lat": loc.latitude, "lon": loc.longitude, "local": loc.address.split(",")[0]}
+            result = {"lat": loc.latitude, "lon": loc.longitude, "local": loc.address.split(",")[0]}
+            # Guardar na cache para próximas vezes
+            CACHE_ESTADIOS[nome_equipa] = result
+            return result
+    except Exception:
+        pass
+
+    # Fallback: tentar só com o nome do clube + futebol
+    try:
+        loc = geolocator.geocode(f"{nome_equipa} futebol, Portugal", timeout=5)
+        if loc:
+            result = {"lat": loc.latitude, "lon": loc.longitude, "local": f"Campo {nome_equipa}"}
+            CACHE_ESTADIOS[nome_equipa] = result
+            return result
     except Exception:
         pass
 
@@ -289,6 +362,55 @@ def parse_games_from_html(html: str) -> list:
             continue
 
     return resultados
+
+
+async def scrape_game_details(page, game_url: str) -> dict:
+    """Visita a página de um jogo no ZeroZero para extrair URLs de equipas e classificação."""
+    result = {"url_equipa_casa": "", "url_equipa_fora": "", "url_classificacao": ""}
+    base = "https://www.zerozero.pt"
+    
+    try:
+        full_url = game_url if game_url.startswith("http") else base + game_url
+        await page.goto(full_url, timeout=30000, wait_until="domcontentloaded")
+        await page.wait_for_timeout(1500)
+        html = await page.content()
+        soup = BeautifulSoup(html, "html.parser")
+
+        # Extrair URLs das equipas (links com /equipa/ no href)
+        team_links = soup.select("a[href*='/equipa/']")
+        team_urls = []
+        for tl in team_links:
+            href = tl.get("href", "")
+            if "/equipa/" in href and href not in team_urls:
+                team_urls.append(href if href.startswith("http") else base + href)
+        
+        if len(team_urls) >= 2:
+            result["url_equipa_casa"] = team_urls[0]
+            result["url_equipa_fora"] = team_urls[1]
+        elif len(team_urls) == 1:
+            result["url_equipa_casa"] = team_urls[0]
+
+        # Extrair URL da classificação (link com /edition/ ou classificacao)
+        edition_links = soup.select("a[href*='/edition/'], a[href*='classificacao']")
+        for el in edition_links:
+            href = el.get("href", "")
+            if "/edition/" in href or "classificacao" in href:
+                result["url_classificacao"] = href if href.startswith("http") else base + href
+                break
+
+        # Fallback: procurar link da competição
+        if not result["url_classificacao"]:
+            comp_links = soup.select("a[href*='/edicao/'], a[href*='/competicao/']")
+            for cl in comp_links:
+                href = cl.get("href", "")
+                if href:
+                    result["url_classificacao"] = href if href.startswith("http") else base + href
+                    break
+
+    except Exception as e:
+        print(f"    ⚠️ Erro ao extrair detalhes de {game_url}: {e}")
+
+    return result
 
 
 def extrair_escalao(comp_text: str, nome_jogo: str = "") -> str:
@@ -450,22 +572,45 @@ async def scrape_zerozero():
                 print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
 
             # Filtrar: manter apenas jogos portugueses relevantes
-            resultados = []
+            jogos_pt = []
+            skipped_geo = 0
             for jogo in all_games:
                 casa, fora = jogo["casa"], jogo["fora"]
                 
-                # Filtro principal: É um jogo português?
                 if not is_portuguese_game(
                     casa, fora, jogo["competicao"], jogo.get("has_pt_flag", False)
                 ):
                     continue
 
-                # Filtro secundário: Conseguimos geolocalizar?
                 geo = geolocalizar_estadio(casa) or geolocalizar_estadio(fora)
                 if not geo:
-                    # Opcional: tentar geocoding se falhar cache
-                    # Mas para evitar spam de API, confiamos na cache grande + geocoding limitado
+                    skipped_geo += 1
                     continue
+
+                jogo["_geo"] = geo
+                jogos_pt.append(jogo)
+
+            print(f"\n⚽ {len(jogos_pt)} jogos portugueses (descartados {skipped_geo} sem geolocalização)")
+
+            # Visitar páginas de detalhe dos jogos para extrair URLs
+            print(f"🔗 A extrair detalhes de {len(jogos_pt)} jogos...")
+            detail_page = await context.new_page()
+            
+            resultados = []
+            for i, jogo in enumerate(jogos_pt):
+                casa, fora = jogo["casa"], jogo["fora"]
+                geo = jogo["_geo"]
+                
+                # Extrair detalhes da página do jogo (URLs das equipas + classificação)
+                details = {"url_equipa_casa": "", "url_equipa_fora": "", "url_classificacao": ""}
+                if jogo.get("url"):
+                    try:
+                        details = await scrape_game_details(detail_page, jogo["url"])
+                        if (i + 1) % 10 == 0:
+                            print(f"   📄 {i + 1}/{len(jogos_pt)} detalhes extraídos...")
+                        await asyncio.sleep(0.5)  # Rate limiting
+                    except Exception as e:
+                        print(f"    ⚠️ Saltar detalhes de {casa} vs {fora}: {e}")
 
                 cat, preco, escalao = classificar_evento(jogo["competicao"], f"{casa} vs {fora}")
 
@@ -477,6 +622,9 @@ async def scrape_zerozero():
                     "equipa_casa": casa,
                     "equipa_fora": fora,
                     "url_jogo": jogo.get("url", ""),
+                    "url_equipa_casa": details.get("url_equipa_casa", ""),
+                    "url_equipa_fora": details.get("url_equipa_fora", ""),
+                    "url_classificacao": details.get("url_classificacao", ""),
                     "data": jogo["data"],
                     "hora": jogo["hora"],
                     "local": geo["local"],
@@ -493,6 +641,7 @@ async def scrape_zerozero():
                 resultados.append(evento)
                 print(f"  ✅ {evento['nome']} ({jogo['data']} {jogo['hora']})")
 
+            await detail_page.close()
             return resultados
 
         except Exception as e:
@@ -513,17 +662,22 @@ async def main():
         print("⚠️ Nenhum evento português encontrado.")
         return
 
-    # 3. Guardar na base de dados
+    # 3. Guardar na base de dados (upsert: atualiza existentes, insere novos)
     print(f"\n📦 A guardar {len(eventos)} eventos no Supabase...")
     guardados = 0
+    erros = 0
     for ev in eventos:
         try:
             supabase.table("eventos").upsert(ev, on_conflict="nome,data").execute()
             guardados += 1
         except Exception as e:
-            print(f"  Erro DB: {e}")
+            erros += 1
+            if erros <= 5:
+                print(f"  Erro DB: {e}")
+            elif erros == 6:
+                print("  ... (mais erros omitidos)")
 
-    print(f"🏁 Feito. {guardados}/{len(eventos)} eventos guardados com sucesso.")
+    print(f"🏁 Feito. {guardados}/{len(eventos)} eventos guardados ({erros} erros).")
 
 
 if __name__ == "__main__":
