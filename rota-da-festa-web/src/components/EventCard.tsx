@@ -1,42 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import { supabase } from "@/utils/supabase/client";
-
 interface EventCardProps {
   event: any;
   distance: number | null;
-  userId: string | null;
-  isFavoriteInicial: boolean;
+  isFavorite: boolean;
   onSelect: (event: any) => void;
+  onToggleFavorite: (eventId: number) => void;
 }
 
-export default function EventCard({ event, distance, userId, isFavoriteInicial, onSelect }: EventCardProps) {
-  const [isFavorite, setIsFavorite] = useState(isFavoriteInicial);
-  const [loading, setLoading] = useState(false);
-
-  const toggleFavorite = async () => {
-    if (!userId) return alert("Faz login para guardar favoritos!");
-    
-    setLoading(true);
-    
-    if (isFavorite) {
-      // Remover
-      const { error } = await supabase
-        .from("favoritos")
-        .delete()
-        .match({ user_id: userId, evento_id: event.id });
-      if (!error) setIsFavorite(false);
-    } else {
-      // Adicionar
-      const { error } = await supabase
-        .from("favoritos")
-        .insert({ user_id: userId, evento_id: event.id });
-      if (!error) setIsFavorite(true);
-    }
-    
-    setLoading(false);
-  };
+export default function EventCard({ event, distance, isFavorite, onSelect, onToggleFavorite }: EventCardProps) {
 
   const isFutebol = event.tipo === "Futebol";
 
@@ -105,8 +77,7 @@ export default function EventCard({ event, distance, userId, isFavoriteInicial, 
 
         {/* Botão Favorito */}
         <button
-          onClick={(e) => { e.stopPropagation(); toggleFavorite(); }}
-          disabled={loading}
+          onClick={(e) => { e.stopPropagation(); onToggleFavorite(event.id); }}
           aria-label={isFavorite ? "Remover dos favoritos" : "Adicionar aos favoritos"}
           className={`
             ml-3 p-2.5 rounded-full transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:outline-none

@@ -40,7 +40,14 @@ export default function Home() {
   const [filterEscalao, setFilterEscalao] = useState("Todos");
   const [activeTab, setActiveTab] = useState<"lista" | "mapa">("lista");
   const [userId, setUserId] = useState<string | null>(null);
-  const [userFavorites, setUserFavorites] = useState<number[]>([]);
+  const [userFavorites, setUserFavorites] = useState<number[]>(() => {
+    if (typeof window !== "undefined") {
+      try {
+        return JSON.parse(localStorage.getItem("rotadafesta_favs") || "[]");
+      } catch { return []; }
+    }
+    return [];
+  });
   const [citySelection, setCitySelection] = useState("braga");
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
@@ -54,15 +61,29 @@ export default function Home() {
     setActiveTab("mapa");
   }, []);
 
-  const handleToggleFavorite = useCallback(async () => {
-    if (!userId || !selectedEvent) return;
-    const isFav = userFavorites.includes(selectedEvent.id);
-    if (isFav) {
-      const { error } = await supabase.from("favoritos").delete().match({ user_id: userId, evento_id: selectedEvent.id });
-      if (!error) setUserFavorites((prev) => prev.filter((id) => id !== selectedEvent.id));
-    } else {
-      const { error } = await supabase.from("favoritos").insert({ user_id: userId, evento_id: selectedEvent.id });
-      if (!error) setUserFavorites((prev) => [...prev, selectedEvent.id]);
+  const handleToggleFavorite = useCallback(async (eventId?: number) => {
+    const id = eventId ?? selectedEvent?.id;
+    if (!id) return;
+    const isFav = userFavorites.includes(id);
+    
+    // Atualizar estado local + localStorage imediatamente (otimistic update)
+    const newFavs = isFav ? userFavorites.filter((fid) => fid !== id) : [...userFavorites, id];
+    setUserFavorites(newFavs);
+    try { localStorage.setItem("rotadafesta_favs", JSON.stringify(newFavs)); } catch {}
+
+    // Sincronizar com Supabase se logado
+    if (userId) {
+      try {
+        if (isFav) {
+          const { error } = await supabase.from("favoritos").delete().match({ user_id: userId, evento_id: id });
+          if (error) console.error("Erro ao remover favorito:", error.message);
+        } else {
+          const { error } = await supabase.from("favoritos").insert({ user_id: userId, evento_id: id });
+          if (error) console.error("Erro ao adicionar favorito:", error.message);
+        }
+      } catch (e) {
+        console.error("Erro Supabase favoritos:", e);
+      }
     }
   }, [userId, selectedEvent, userFavorites]);
 
@@ -105,8 +126,24 @@ export default function Home() {
   }
 
   async function fetchFavorites(uid: string) {
-    const { data } = await supabase.from("favoritos").select("evento_id").eq("user_id", uid);
-    if (data) setUserFavorites(data.map((f: any) => f.evento_id));
+    try {
+      const { data, error } = await supabase.from("favoritos").select("evento_id").eq("user_id", uid);
+      if (error) {
+        console.error("Erro ao carregar favoritos:", error.message);
+        return;
+      }
+      if (data) {
+        const dbFavs = data.map((f: any) => f.evento_id);
+        // Merge: localStorage + Supabase (sem duplicados)
+        setUserFavorites((prev) => {
+          const merged = Array.from(new Set([...prev, ...dbFavs]));
+          try { localStorage.setItem("rotadafesta_favs", JSON.stringify(merged)); } catch {}
+          return merged;
+        });
+      }
+    } catch (e) {
+      console.error("Erro ao carregar favoritos:", e);
+    }
   }
 
   const processedEvents = useMemo(() => {
@@ -265,9 +302,9 @@ export default function Home() {
                     key={event.id}
                     event={event}
                     distance={event.distance || null}
-                    userId={userId}
-                    isFavoriteInicial={userFavorites.includes(event.id)}
+                    isFavorite={userFavorites.includes(event.id)}
                     onSelect={handleSelectEvent}
+                    onToggleFavorite={handleToggleFavorite}
                 />
                 ))
             )}
@@ -325,7 +362,7 @@ export default function Home() {
           isFavorite={userFavorites.includes(selectedEvent.id)}
           allEvents={processedEvents}
           onClose={() => setSelectedEvent(null)}
-          onToggleFavorite={handleToggleFavorite}
+          onToggleFavorite={() => handleToggleFavorite(selectedEvent.id)}
           onShowOnMap={handleShowOnMap}
           onSelectEvent={handleSelectEvent}
         />
