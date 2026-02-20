@@ -382,6 +382,21 @@ export default function EventDetailModal({
         {/* Scrollable Content */}
         <div ref={scrollRef} className="flex-1 overflow-y-auto p-4 space-y-4 scroll-smooth">
 
+          {/* Adiado Banner */}
+          {event.status === "adiado" && (
+            <div className="bg-orange-50 dark:bg-orange-950/30 border border-orange-200 dark:border-orange-800 rounded-xl p-3 flex items-center gap-3">
+              <span className="text-2xl">⚠️</span>
+              <div>
+                <p className="font-bold text-orange-800 dark:text-orange-200 text-sm">Jogo Adiado</p>
+                <p className="text-xs text-orange-600 dark:text-orange-400">
+                  {event.descricao?.includes("Remarcado para")
+                    ? event.descricao.split(".")[0]
+                    : "Este jogo foi adiado. Consulta o ZeroZero para mais informações."}
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Quick Actions */}
           <div className="grid grid-cols-4 gap-2">
             <button onClick={() => { onShowOnMap(event); onClose(); }} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group active:scale-95">

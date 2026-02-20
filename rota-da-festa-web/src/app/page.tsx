@@ -151,7 +151,9 @@ export default function Home() {
       const matchesSearch = ev.nome.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = filterType === "Todos" || ev.tipo === filterType;
       const matchesEscalao = filterEscalao === "Todos" || ev.escalao === filterEscalao;
-      return matchesSearch && matchesType && matchesEscalao;
+      // Esconder eventos pendentes (não aprovados nem adiados)
+      const isVisible = ev.status === "aprovado" || ev.status === "adiado";
+      return matchesSearch && matchesType && matchesEscalao && isVisible;
     });
 
     if (userLocation) {
@@ -162,6 +164,13 @@ export default function Home() {
     } else {
         filtered.sort((a, b) => new Date(a.data).getTime() - new Date(b.data).getTime());
     }
+
+    // Adiados sempre no fim da lista
+    filtered.sort((a, b) => {
+      if (a.status === "adiado" && b.status !== "adiado") return 1;
+      if (a.status !== "adiado" && b.status === "adiado") return -1;
+      return 0;
+    });
 
     return filtered;
   }, [events, userLocation, searchTerm, filterType, filterEscalao]);

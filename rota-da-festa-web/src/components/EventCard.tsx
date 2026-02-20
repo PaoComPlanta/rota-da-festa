@@ -11,6 +11,12 @@ interface EventCardProps {
 export default function EventCard({ event, distance, isFavorite, onSelect, onToggleFavorite }: EventCardProps) {
 
   const isFutebol = event.tipo === "Futebol";
+  const isAdiado = event.status === "adiado";
+
+  const hoje = new Date().toISOString().split("T")[0];
+  const amanha = new Date(Date.now() + 86400000).toISOString().split("T")[0];
+  const isHoje = event.data === hoje;
+  const isAmanha = event.data === amanha;
 
   return (
     <div
@@ -18,13 +24,28 @@ export default function EventCard({ event, distance, isFavorite, onSelect, onTog
       className={`
       relative group bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 p-4 mb-3 cursor-pointer
       transition-all hover:shadow-lg hover:scale-[1.01] 
-      ${isFutebol ? "border-green-500" : "border-red-500"}
-      ${isFavorite ? "border-yellow-400" : ""}
+      ${isAdiado ? "border-orange-400 opacity-60" : isFutebol ? "border-green-500" : "border-red-500"}
+      ${isFavorite && !isAdiado ? "border-yellow-400" : ""}
     `}>
       <div className="flex justify-between items-start">
         <div className="flex-1">
-          {/* Badge Tipo + Escalão */}
+          {/* Badge Tipo + Escalão + Status */}
           <div className="flex items-center gap-2 mb-2 flex-wrap">
+            {isAdiado && (
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider bg-orange-100 text-orange-800 dark:bg-orange-900 dark:text-orange-100 animate-pulse">
+                ⚠️ Adiado
+              </span>
+            )}
+            {isHoje && !isAdiado && (
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider bg-red-100 text-red-700 dark:bg-red-900 dark:text-red-100 animate-pulse">
+                🔴 Hoje
+              </span>
+            )}
+            {isAmanha && !isAdiado && (
+              <span className="text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider bg-blue-100 text-blue-700 dark:bg-blue-900 dark:text-blue-100">
+                Amanhã
+              </span>
+            )}
             <span className={`
               text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider
               ${isFutebol 

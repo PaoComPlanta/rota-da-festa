@@ -616,20 +616,137 @@ async def load_page(page, url: str, accept_cookies: bool = False,
     return ""
 
 
-def limpar_eventos_antigos():
-    """Remove da base de dados os eventos com data anterior a hoje."""
-    hoje = datetime.now().strftime("%Y-%m-%d")
+def limpar_eventos_concluidos():
+    """Quinta-feira: limpa eventos passados. Outros dias: mantém tudo."""
+    hoje = datetime.now()
+    if hoje.weekday() != 3:  # 3 = quinta-feira
+        print("📅 Não é quinta-feira — eventos passados mantidos.")
+        return
+
+    ontem = (hoje - timedelta(days=1)).strftime("%Y-%m-%d")
     try:
-        result = supabase.table("eventos").delete().lt("data", hoje).execute()
+        result = supabase.table("eventos").delete().lt("data", ontem).execute()
         n = len(result.data) if result.data else 0
-        print(f"🧹 Removidos {n} eventos antigos (antes de {hoje}).")
+        print(f"🧹 Quinta-feira: removidos {n} eventos concluídos.")
     except Exception as e:
-        print(f"⚠️ Erro ao limpar eventos antigos: {e}")
+        print(f"⚠️ Erro ao limpar eventos: {e}")
+
+
+def extract_games_from_page(html: str, comp_name: str = "") -> list:
+    """Extrai jogos de qualquer página ZeroZero (edição, calendário, competição)."""
+    soup = BeautifulSoup(html, "html.parser")
+    games = []
+    hoje = datetime.now()
+    limite = hoje + timedelta(days=7)
+    seen = set()
+
+    # Tentar extrair nome da competição do header da página
+    if not comp_name:
+        h1 = soup.select_one("h1, .header h2, .comp_title")
+        comp_name = h1.get_text(strip=True) if h1 else ""
+
+    for match_link in soup.select("a[href*='/jogo/']"):
+        href = match_link.get("href", "")
+        if not href or href in seen:
+            continue
+        seen.add(href)
+
+        # Data do URL do jogo (formato: /jogo/YYYY-MM-DD/...)
+        url_date = re.search(r'/jogo/(\d{4}-\d{2}-\d{2})', href)
+        if not url_date:
+            # Tentar encontrar data no contexto (parent row/div)
+            parent = match_link.find_parent(["tr", "li", "div"])
+            if parent:
+                dm = re.search(r'(\d{4}-\d{2}-\d{2})', str(parent))
+                if dm:
+                    url_date = dm
+        if not url_date:
+            continue
+        data = url_date.group(1) if hasattr(url_date, 'group') else url_date
+
+        try:
+            game_date = datetime.strptime(data, "%Y-%m-%d")
+            if game_date.date() < hoje.date() or game_date > limite:
+                continue
+        except Exception:
+            continue
+
+        # Contexto: linha/div que contém o link do jogo
+        parent = match_link.find_parent(["tr", "li", "div"])
+        if not parent:
+            parent = match_link.parent
+
+        # Equipas: links /equipa/ no contexto
+        team_links = parent.select("a[href*='/equipa/']") if parent else []
+        casa, fora = None, None
+
+        if len(team_links) >= 2:
+            casa = team_links[0].get_text(strip=True)
+            fora = team_links[1].get_text(strip=True)
+        else:
+            # Fallback: texto do link do jogo (ex: "Team A vs Team B")
+            text = match_link.get_text(strip=True)
+            vs = re.match(r'(.+?)\s+(?:vs|x|\d+-\d+)\s+(.+)', text, re.IGNORECASE)
+            if vs:
+                casa = vs.group(1).strip()
+                fora = vs.group(2).strip()
+
+        if not casa or not fora:
+            continue
+
+        # Hora
+        hora = "A definir"
+        ctx_text = parent.get_text() if parent else ""
+        time_match = re.search(r'\b(\d{2}:\d{2})\b', ctx_text)
+        if time_match:
+            hora = time_match.group(1)
+
+        base_url = "https://www.zerozero.pt"
+        full_url = href if href.startswith("http") else base_url + href
+
+        games.append({
+            "casa": casa, "fora": fora,
+            "data": data, "hora": hora,
+            "competicao": comp_name, "url": full_url,
+            "has_pt_flag": True,
+        })
+
+    return games
 
 
 async def scrape_zerozero():
     base_url = "https://www.zerozero.pt/agenda.php"
+    base = "https://www.zerozero.pt"
     print("🌍 A iniciar scraping do ZeroZero...")
+
+    # URLs das 20 AFs + competições nacionais (do sitemap zerozero.pt)
+    PT_COMPETITION_URLS = {
+        "af-algarve": "https://www.zerozero.pt/competicao/af-algarve/169",
+        "af-aveiro": "https://www.zerozero.pt/competicao/af-aveiro/170",
+        "af-beja": "https://www.zerozero.pt/competicao/af-beja/171",
+        "af-braga": "https://www.zerozero.pt/competicao/af-braga/172",
+        "af-braganca": "https://www.zerozero.pt/competicao/af-braganca/173",
+        "af-castelo-branco": "https://www.zerozero.pt/competicao/af-castelo-branco/174",
+        "af-coimbra": "https://www.zerozero.pt/competicao/af-coimbra/175",
+        "af-evora": "https://www.zerozero.pt/competicao/af-evora/176",
+        "af-guarda": "https://www.zerozero.pt/competicao/af-guarda/177",
+        "af-leiria": "https://www.zerozero.pt/competicao/af-leiria/178",
+        "af-lisboa": "https://www.zerozero.pt/competicao/af-lisboa/179",
+        "af-portalegre": "https://www.zerozero.pt/competicao/af-portalegre/180",
+        "af-porto": "https://www.zerozero.pt/competicao/af-porto/181",
+        "af-santarem": "https://www.zerozero.pt/competicao/af-santarem/182",
+        "af-setubal": "https://www.zerozero.pt/competicao/af-setubal/183",
+        "af-viana-do-castelo": "https://www.zerozero.pt/competicao/af-viana-do-castelo/184",
+        "af-vila-real": "https://www.zerozero.pt/competicao/af-vila-real/185",
+        "af-viseu": "https://www.zerozero.pt/competicao/af-viseu/186",
+        "af-ponta-delgada": "https://www.zerozero.pt/competicao/af-ponta-delgada/219",
+        "af-madeira": "https://www.zerozero.pt/competicao/af-madeira/222",
+        "liga-3": "https://www.zerozero.pt/competicao/iii-divisao/76",
+        "juniores-a": "https://www.zerozero.pt/competicao/i-divisao-juniores-a-sub-19-/136",
+        "juniores-b": "https://www.zerozero.pt/competicao/i-divisao-juniores-b-sub-17-/137",
+        "juniores-c": "https://www.zerozero.pt/competicao/i-divisao-juniores-c-sub-15-/138",
+        "feminina": "https://www.zerozero.pt/competicao/liga-portuguesa-feminina/143",
+    }
 
     async with async_playwright() as p:
         browser = await p.chromium.launch(headless=True)
@@ -646,6 +763,7 @@ async def scrape_zerozero():
         try:
             all_games = []
             ids_vistos = set()
+            datas_ok = set()
 
             # Scrape hoje + próximos 6 dias (cobre o fim-de-semana)
             hoje = datetime.now()
@@ -660,6 +778,7 @@ async def scrape_zerozero():
                 html = await load_page(page, url, accept_cookies=(idx == 0))
                 if not html:
                     continue
+                datas_ok.add(data_str)
 
                 jogos = parse_games_from_html(html)
                 novos = 0
@@ -670,6 +789,92 @@ async def scrape_zerozero():
                         all_games.append(jogo)
                         novos += 1
                 print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
+
+            print(f"\n📊 Fase 1 (Agenda): {len(all_games)} jogos encontrados")
+
+            # ================================================================
+            # FASE 2: Scraping por AF/competição — distritais e formação
+            # ================================================================
+            print("\n🏟️  Fase 2: A descobrir jogos distritais e de formação...")
+            af_page = await context.new_page()
+            af_total = 0
+
+            for comp_name, comp_url in PT_COMPETITION_URLS.items():
+                try:
+                    print(f"  📋 {comp_name}...")
+
+                    # 1. Visitar página da competição/AF
+                    html = await load_page(af_page, comp_url)
+                    if not html:
+                        continue
+
+                    # 2. Descobrir links de edições actuais
+                    comp_soup = BeautifulSoup(html, "html.parser")
+                    edition_urls = []
+                    for link in comp_soup.select("a[href*='/edicao/']"):
+                        href = link.get("href", "")
+                        if href:
+                            full = href if href.startswith("http") else base + href
+                            if full not in edition_urls:
+                                edition_urls.append(full)
+
+                    # Limitar a 20 edições por AF (evitar runaway)
+                    edition_urls = edition_urls[:20]
+
+                    if not edition_urls:
+                        # Sem edições — tentar extrair jogos directamente da página
+                        jogos = extract_games_from_page(html, comp_name)
+                        for j in jogos:
+                            gid = _extract_game_id(j["url"])
+                            if gid not in ids_vistos:
+                                ids_vistos.add(gid)
+                                all_games.append(j)
+                                af_total += 1
+                        continue
+
+                    # 3. Para cada edição, visitar calendário e extrair jogos
+                    for ed_url in edition_urls:
+                        try:
+                            # Tentar URL do calendário directamente
+                            cal_url = ed_url.rstrip("/") + "/calendario"
+                            html_cal = await load_page(af_page, cal_url)
+                            if not html_cal:
+                                html_cal = await load_page(af_page, ed_url)
+                            if not html_cal:
+                                continue
+
+                            # Extrair nome da competição da edição
+                            ed_soup = BeautifulSoup(html_cal, "html.parser")
+                            ed_h1 = ed_soup.select_one("h1, h2.header_title")
+                            ed_comp = ed_h1.get_text(strip=True) if ed_h1 else comp_name
+
+                            jogos = extract_games_from_page(html_cal, ed_comp)
+
+                            novos_ed = 0
+                            for j in jogos:
+                                gid = _extract_game_id(j["url"])
+                                if gid not in ids_vistos:
+                                    ids_vistos.add(gid)
+                                    all_games.append(j)
+                                    novos_ed += 1
+                                    af_total += 1
+
+                            if novos_ed:
+                                print(f"     ✅ {ed_comp}: +{novos_ed} jogos")
+
+                            await asyncio.sleep(0.5)
+                        except Exception as e:
+                            print(f"     ⚠️ Erro edição {ed_url}: {e}")
+                            continue
+
+                    await asyncio.sleep(0.3)
+                except Exception as e:
+                    print(f"  ⚠️ Erro {comp_name}: {e}")
+                    continue
+
+            await af_page.close()
+            print(f"\n📊 Fase 2 (AFs): +{af_total} jogos distritais/formação")
+            print(f"📊 Total: {len(all_games)} jogos encontrados")
 
             # Filtrar: manter apenas jogos portugueses relevantes
             jogos_pt = []
@@ -747,27 +952,94 @@ async def scrape_zerozero():
                 print(f"  ✅ {evento['nome']} ({jogo['data']} {jogo['hora']})")
 
             await detail_page.close()
-            return resultados
+            return resultados, datas_ok
 
         except Exception as e:
             print(f"❌ Erro Scraping: {e}")
-            return []
+            return [], set()
         finally:
             await browser.close()
 
 
+def verificar_adiamentos(eventos_novos: list, datas_ok: set):
+    """Compara eventos futuros na DB com scrape fresco para detectar adiamentos."""
+    hoje = datetime.now().strftime("%Y-%m-%d")
+
+    try:
+        result = (
+            supabase.table("eventos")
+            .select("*")
+            .gte("data", hoje)
+            .eq("status", "aprovado")
+            .eq("tipo", "Futebol")
+            .execute()
+        )
+        eventos_db = result.data or []
+    except Exception as e:
+        print(f"⚠️ Erro ao verificar adiamentos: {e}")
+        return
+
+    # Jogos encontrados no scrape: (nome, data)
+    scrape_set = {(ev["nome"], ev["data"]) for ev in eventos_novos}
+
+    # Nomes → datas no scrape (para detectar remarcações)
+    nomes_datas = {}
+    for ev in eventos_novos:
+        nomes_datas.setdefault(ev["nome"], []).append(ev["data"])
+
+    adiados = 0
+    remarcados = 0
+
+    for ev_db in eventos_db:
+        nome, data = ev_db["nome"], ev_db["data"]
+
+        # Só verificar datas que foram scrapeadas com sucesso
+        if data not in datas_ok:
+            continue
+
+        if (nome, data) in scrape_set:
+            continue
+
+        # Jogo não aparece no scrape para esta data
+        if nome in nomes_datas:
+            novas = [d for d in nomes_datas[nome] if d != data]
+            if novas:
+                supabase.table("eventos").update({
+                    "status": "adiado",
+                    "descricao": f"⚠️ Remarcado para {novas[0]}. " + (ev_db.get("descricao") or ""),
+                }).eq("id", ev_db["id"]).execute()
+                remarcados += 1
+                print(f"  🔄 Remarcado: {nome} ({data} → {novas[0]})")
+                continue
+
+        supabase.table("eventos").update({
+            "status": "adiado",
+        }).eq("id", ev_db["id"]).execute()
+        adiados += 1
+        print(f"  ⚠️ Adiado: {nome} ({data})")
+
+    if adiados or remarcados:
+        print(f"📋 Adiamentos: {adiados} adiados, {remarcados} remarcados")
+    else:
+        print("📋 Sem adiamentos detectados")
+
+
 async def main():
-    # 1. Limpar eventos que já passaram
-    limpar_eventos_antigos()
+    # 1. Quinta-feira: limpar eventos concluídos
+    limpar_eventos_concluidos()
 
     # 2. Scrape de novos eventos
-    eventos = await scrape_zerozero()
+    eventos, datas_ok = await scrape_zerozero()
 
     if not eventos:
         print("⚠️ Nenhum evento português encontrado.")
         return
 
-    # 3. Guardar na base de dados (upsert: atualiza existentes, insere novos)
+    # 3. Verificar adiamentos (antes de guardar novos)
+    print("\n🔍 A verificar adiamentos...")
+    verificar_adiamentos(eventos, datas_ok)
+
+    # 4. Guardar na base de dados (upsert: atualiza existentes, insere novos)
     print(f"\n📦 A guardar {len(eventos)} eventos no Supabase...")
     guardados = 0
     erros = 0
