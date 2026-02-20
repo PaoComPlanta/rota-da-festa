@@ -609,11 +609,20 @@ async def load_page(page, url: str, accept_cookies: bool = False,
     return ""
 
 
-async def load_page_fast(page, url: str) -> str:
-    """Carregamento rápido para Fase 2 — sem scrolling, sem retries."""
+async def load_page_fast(page, url: str, scroll: bool = False) -> str:
+    """Carregamento rápido para Fase 2 — scroll leve opcional, sem retries."""
     try:
         await page.goto(url, timeout=30000, wait_until="domcontentloaded")
         await page.wait_for_timeout(1500)
+
+        if scroll:
+            for _ in range(3):
+                prev = await page.evaluate("document.body.scrollHeight")
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(800)
+                if await page.evaluate("document.body.scrollHeight") == prev:
+                    break
+
         title = await page.title()
         if "cloudflare" in title.lower() or "just a moment" in title.lower():
             return ""
@@ -805,31 +814,28 @@ async def scrape_zerozero():
             print("\n🏟️  Fase 2: A descobrir jogos distritais e de formação...")
             af_page = await context.new_page()
             af_total = 0
-            current_year = datetime.now().year
-            season_years = {str(current_year), str(current_year - 1)}
 
             for comp_name, comp_url in PT_COMPETITION_URLS.items():
                 try:
                     print(f"  📋 {comp_name}...")
 
-                    # 1. Visitar página da competição/AF (fast load)
-                    html = await load_page_fast(af_page, comp_url)
+                    # 1. Visitar página da competição/AF (com scroll para revelar edições)
+                    html = await load_page_fast(af_page, comp_url, scroll=True)
                     if not html:
                         continue
 
-                    # 2. Descobrir links de edições da época actual
+                    # 2. Descobrir links de edições (ZeroZero lista as mais recentes primeiro)
                     comp_soup = BeautifulSoup(html, "html.parser")
                     edition_urls = []
                     for link in comp_soup.select("a[href*='/edicao/']"):
                         href = link.get("href", "")
                         if href:
                             full = href if href.startswith("http") else base + href
-                            # Filtrar: só edições da época actual
-                            if any(y in full for y in season_years) and full not in edition_urls:
+                            if full not in edition_urls:
                                 edition_urls.append(full)
 
-                    # Máximo 5 edições por AF
-                    edition_urls = edition_urls[:5]
+                    # Até 15 edições por AF (cobre seniores + formação)
+                    edition_urls = edition_urls[:15]
 
                     if not edition_urls:
                         jogos = extract_games_from_page(html, comp_name)
