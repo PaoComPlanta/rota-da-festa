@@ -527,25 +527,39 @@ def classificar_evento(comp_text: str, nome_jogo: str = ""):
     if escalao not in ("Seniores", "Sub-23"):
         return f"Formação - {escalao}", "Grátis", escalao
 
-    if any(x in cl for x in ["liga portugal", "primeira liga"]):
+    if any(x in cl for x in ["champions", "europa league", "conference", "uefa"]):
+        return "Competição Europeia", "~25€ (estimado)", escalao
+    if any(x in cl for x in ["liga portugal", "primeira liga", "betclic"]):
         return "Liga Portugal", "~15€ (estimado)", escalao
-    if any(x in cl for x in ["liga 3"]):
-        return "Liga 3", "~5€ (estimado)", escalao
     if any(x in cl for x in ["liga 2", "segunda liga", "meu super"]):
         return "Liga Portugal 2", "~10€ (estimado)", escalao
-    if any(x in cl for x in ["champions", "europa league", "conference"]):
-        return "Competição Europeia", "~25€ (estimado)", escalao
+    if any(x in cl for x in ["liga 3"]):
+        return "Liga 3", "~5€ (estimado)", escalao
     if any(x in cl for x in ["taça de portugal", "taca de portugal"]):
         return "Taça de Portugal", "~8€ (estimado)", escalao
     if any(x in cl for x in ["taça da liga"]):
         return "Taça da Liga", "~8€ (estimado)", escalao
+    if any(x in cl for x in ["supertaça"]):
+        return "Supertaça", "~15€ (estimado)", escalao
     if any(x in cl for x in ["revelação", "sub-23"]):
         return "Liga Revelação", "Grátis", "Sub-23"
-    if any(x in cl for x in ["pro-nacional", "campeonato de portugal"]):
+    if any(x in cl for x in ["liga feminina", "liga bpi", "futebol feminino"]):
+        return "Futebol Feminino", "~3€ (estimado)", escalao
+    if any(x in cl for x in ["pro-nacional", "pró-nacional", "campeonato de portugal"]):
         return "Campeonato de Portugal", "~5€ (estimado)", escalao
-    if any(x in cl for x in ["divisão de honra"]):
+    if any(x in cl for x in ["divisão de honra", "divisao de honra"]):
         return "Divisão de Honra", "~3€ (estimado)", escalao
-    return "Futebol Distrital", "~3€ (estimado)", escalao
+    if any(x in cl for x in [
+        "af ", "a.f.", "distrital", "1ª divisão", "2ª divisão", "3ª divisão",
+        "divisão elite", "liga regional", "campeonato regional",
+        "afp ", "afl ", "afb ",
+    ]):
+        return "Futebol Distrital", "~3€ (estimado)", escalao
+    if any(x in cl for x in [
+        "amigável", "amistoso", "particular", "friendly",
+    ]):
+        return "Amigável", "Grátis", escalao
+    return "Futebol", "Variável", escalao
 
 
 async def load_page(page, url: str, accept_cookies: bool = False,
@@ -883,21 +897,38 @@ async def scrape_zerozero():
                             print(f"     ✅ Directos: +{len(jogos)} jogos")
                         continue
 
-                    # 5. Para cada edição, visitar calendário e extrair jogos
-                    for ed_url in edition_urls:
+                    # 5. Para cada edição, visitar próximos jogos e extrair
+                    for ed_idx, ed_url in enumerate(edition_urls):
                         try:
-                            cal_url = ed_url.rstrip("/") + "/calendario"
-                            html_cal = await load_page_fast(af_page, cal_url)
-                            if not html_cal:
-                                html_cal = await load_page_fast(af_page, ed_url)
-                            if not html_cal:
+                            # Prioridade: "próximos jogos" (só mostra jogos futuros)
+                            prox_url = ed_url.rstrip("/") + "/proximos-jogos"
+                            html_ed = await load_page_fast(af_page, prox_url, scroll=True)
+
+                            # Se não funcionou, tentar página principal da edição
+                            if not html_ed or len(html_ed) < 5000:
+                                html_ed = await load_page_fast(af_page, ed_url, scroll=True)
+
+                            if not html_ed:
                                 continue
 
-                            ed_soup = BeautifulSoup(html_cal, "html.parser")
+                            ed_soup = BeautifulSoup(html_ed, "html.parser")
                             ed_h1 = ed_soup.select_one("h1, h2.header_title")
                             ed_comp = ed_h1.get_text(strip=True) if ed_h1 else comp_name
 
-                            jogos = extract_games_from_page(html_cal, ed_comp)
+                            # Debug: primeira edição de cada AF — mostrar o que foi encontrado
+                            if ed_idx == 0:
+                                n_game_links = len(ed_soup.select("a[href*='/jogo/']"))
+                                n_team_links = len(ed_soup.select("a[href*='/equipa/']"))
+                                page_title = ed_soup.title.string if ed_soup.title else "sem título"
+                                print(f"     🔍 Debug {ed_comp}: {n_game_links} links /jogo/, {n_team_links} links /equipa/, título: {page_title[:60]}")
+
+                            # Tentar os dois parsers: genérico + o da Fase 1
+                            jogos = extract_games_from_page(html_ed, ed_comp)
+                            if not jogos:
+                                jogos = parse_games_from_html(html_ed)
+                                for j in jogos:
+                                    j["competicao"] = ed_comp
+                                    j["has_pt_flag"] = True
 
                             novos_ed = 0
                             for j in jogos:
