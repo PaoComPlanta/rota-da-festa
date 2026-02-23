@@ -25,12 +25,30 @@ export default function SubmitEvent() {
     e.preventDefault();
     setLoading(true);
 
-    // Preparar objeto para envio
+    // Auto-geocode o local via Nominatim
+    let latitude: number | null = null;
+    let longitude: number | null = null;
+    if (formData.local) {
+      try {
+        const query = encodeURIComponent(`${formData.local}, Portugal`);
+        const res = await fetch(`https://nominatim.openstreetmap.org/search?format=json&q=${query}&limit=1`, {
+          headers: { "User-Agent": "RotaDaFesta/1.0" },
+        });
+        const results = await res.json();
+        if (results.length > 0) {
+          latitude = parseFloat(results[0].lat);
+          longitude = parseFloat(results[0].lon);
+        }
+      } catch (err) {
+        console.error("Geocoding falhou:", err);
+      }
+    }
+
     const eventoParaEnviar = {
       ...formData,
-      status: "pendente", // FORÇADO: Utilizador não pode aprovar
-      latitude: null,     // Admin terá de preencher depois
-      longitude: null,
+      status: "pendente",
+      latitude,
+      longitude,
     };
 
     const { error } = await supabase.from("eventos").insert([eventoParaEnviar]);

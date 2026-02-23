@@ -199,11 +199,43 @@ export default function EventDetailModal({
   const [weatherLoading, setWeatherLoading] = useState(false);
   const [shareMsg, setShareMsg] = useState("");
   const [isFirstMount, setIsFirstMount] = useState(true);
+  const [vouCount, setVouCount] = useState(0);
+  const [userVou, setUserVou] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventId = useRef<number | null>(null);
 
   const isFutebol = event.tipo === "Futebol";
   const countdown = getCountdown(event.data, event.hora);
+
+  // "Vou a este evento" — localStorage-based
+  useEffect(() => {
+    try {
+      const vouData = JSON.parse(localStorage.getItem("rotadafesta_vou") || "{}");
+      setUserVou(!!vouData[event.id]);
+      // Simulate count from stored data (will be real when synced to DB)
+      const allVou = JSON.parse(localStorage.getItem("rotadafesta_vou_counts") || "{}");
+      setVouCount(allVou[event.id] || 0);
+    } catch { setUserVou(false); setVouCount(0); }
+  }, [event.id]);
+
+  const toggleVou = useCallback(() => {
+    try {
+      const vouData = JSON.parse(localStorage.getItem("rotadafesta_vou") || "{}");
+      const counts = JSON.parse(localStorage.getItem("rotadafesta_vou_counts") || "{}");
+      if (vouData[event.id]) {
+        delete vouData[event.id];
+        counts[event.id] = Math.max(0, (counts[event.id] || 1) - 1);
+        setUserVou(false);
+      } else {
+        vouData[event.id] = true;
+        counts[event.id] = (counts[event.id] || 0) + 1;
+        setUserVou(true);
+      }
+      localStorage.setItem("rotadafesta_vou", JSON.stringify(vouData));
+      localStorage.setItem("rotadafesta_vou_counts", JSON.stringify(counts));
+      setVouCount(counts[event.id] || 0);
+    } catch {}
+  }, [event.id]);
 
   // Scroll to top on event change (no flicker)
   useEffect(() => {
@@ -398,7 +430,7 @@ export default function EventDetailModal({
           )}
 
           {/* Quick Actions */}
-          <div className="grid grid-cols-4 gap-2">
+          <div className="grid grid-cols-5 gap-2">
             <button onClick={() => { onShowOnMap(event); onClose(); }} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-blue-50 dark:bg-blue-950/30 hover:bg-blue-100 dark:hover:bg-blue-900/30 transition-colors group active:scale-95">
               <span className="text-xl group-hover:scale-110 transition-transform">🗺️</span>
               <span className="text-[10px] font-bold text-blue-700 dark:text-blue-300">Ver Mapa</span>
@@ -406,6 +438,10 @@ export default function EventDetailModal({
             <button onClick={handleNavigate} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-green-50 dark:bg-green-950/30 hover:bg-green-100 dark:hover:bg-green-900/30 transition-colors group active:scale-95">
               <span className="text-xl group-hover:scale-110 transition-transform">🚗</span>
               <span className="text-[10px] font-bold text-green-700 dark:text-green-300">Ir Para Lá</span>
+            </button>
+            <button onClick={toggleVou} className={`flex flex-col items-center gap-1 p-3 rounded-xl transition-colors group active:scale-95 ${userVou ? "bg-pink-100 dark:bg-pink-950/40 ring-2 ring-pink-400" : "bg-pink-50 dark:bg-pink-950/30 hover:bg-pink-100 dark:hover:bg-pink-900/30"}`}>
+              <span className="text-xl group-hover:scale-110 transition-transform">{userVou ? "🙋" : "🙋‍♂️"}</span>
+              <span className="text-[10px] font-bold text-pink-700 dark:text-pink-300">{userVou ? "Vou!" : "Vou"}{vouCount > 0 ? ` (${vouCount})` : ""}</span>
             </button>
             <button onClick={handleCalendar} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-purple-50 dark:bg-purple-950/30 hover:bg-purple-100 dark:hover:bg-purple-900/30 transition-colors group active:scale-95">
               <span className="text-xl group-hover:scale-110 transition-transform">📅</span>
