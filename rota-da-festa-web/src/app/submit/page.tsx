@@ -25,7 +25,28 @@ export default function SubmitEvent() {
     e.preventDefault();
     setLoading(true);
 
-    // Auto-geocode o local via Nominatim
+    // Step 1: Groq moderation
+    try {
+      const modRes = await fetch("/api/moderate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(formData),
+      });
+      const modResult = await modRes.json();
+      if (!modResult.approved) {
+        setLoading(false);
+        alert(`Evento não aprovado: ${modResult.reason || "Não cumpre as regras da comunidade."}`);
+        return;
+      }
+      // Use suggested category if available
+      if (modResult.category) {
+        formData.tipo = modResult.category;
+      }
+    } catch {
+      // Moderation unavailable — continue anyway
+    }
+
+    // Step 2: Auto-geocode o local via Nominatim
     let latitude: number | null = null;
     let longitude: number | null = null;
     if (formData.local) {
@@ -143,8 +164,12 @@ export default function SubmitEvent() {
                   className="mt-1 block w-full rounded-lg border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-white shadow-sm focus:border-blue-500 focus:ring-blue-500 sm:text-sm p-2.5 transition-colors"
                 >
                   <option value="Futebol">⚽ Futebol</option>
-                  <option value="Festa/Romaria">🎉 Festa/Romaria</option>
-                  <option value="Cultura/Lazer">🎭 Cultura/Lazer</option>
+                  <option value="Festa/Romaria">🎪 Festa/Romaria</option>
+                  <option value="Concerto">🎵 Concerto</option>
+                  <option value="Feira">🍖 Feira/Mercado</option>
+                  <option value="Cultura">🎭 Cultura/Teatro</option>
+                  <option value="Desporto">🏃 Desporto</option>
+                  <option value="Tradição">🔥 Tradição</option>
                 </select>
               </div>
 
