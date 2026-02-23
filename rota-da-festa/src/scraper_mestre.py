@@ -2,6 +2,7 @@ import os
 import asyncio
 import re
 import time
+import json
 from datetime import datetime, timedelta
 from bs4 import BeautifulSoup
 from supabase import create_client, Client
@@ -177,7 +178,31 @@ CACHE_ESTADIOS = {
     "Lourosa": {"lat": 40.9833, "lon": -8.5333, "local": "Estádio do Lusitânia de Lourosa"},
 }
 
-# Centróides dos distritos/AFs — fallback quando geocoding falha
+# Ficheiro de cache persistente (ao lado do script)
+_CACHE_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "cache_estadios.json")
+
+def _load_cache():
+    """Carrega cache de estádios do ficheiro JSON e faz merge com o hardcoded."""
+    if os.path.exists(_CACHE_FILE):
+        try:
+            with open(_CACHE_FILE, "r", encoding="utf-8") as f:
+                saved = json.load(f)
+            # Merge: saved sobrepõe hardcoded (tem geocoding real)
+            CACHE_ESTADIOS.update(saved)
+            print(f"📂 Cache carregado: {len(saved)} entradas do ficheiro, {len(CACHE_ESTADIOS)} total")
+        except Exception as e:
+            print(f"⚠️ Erro ao carregar cache: {e}")
+
+def _save_cache():
+    """Guarda o cache completo num ficheiro JSON."""
+    try:
+        with open(_CACHE_FILE, "w", encoding="utf-8") as f:
+            json.dump(CACHE_ESTADIOS, f, ensure_ascii=False, indent=2)
+        print(f"💾 Cache guardado: {len(CACHE_ESTADIOS)} estádios em {_CACHE_FILE}")
+    except Exception as e:
+        print(f"⚠️ Erro ao guardar cache: {e}")
+
+_load_cache()
 DISTRICT_CENTROIDS = {
     "braga": {"lat": 41.5503, "lon": -8.4270, "local": "Braga (aproximado)"},
     "porto": {"lat": 41.1496, "lon": -8.6109, "local": "Porto (aproximado)"},
@@ -1120,6 +1145,9 @@ async def main():
                 print("  ... (mais erros omitidos)")
 
     print(f"🏁 Feito. {guardados}/{len(eventos)} eventos guardados ({erros} erros).")
+
+    # 5. Guardar cache de estádios para próximas execuções
+    _save_cache()
 
 
 if __name__ == "__main__":
