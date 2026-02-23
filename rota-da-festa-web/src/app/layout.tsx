@@ -11,6 +11,22 @@ export const metadata: Metadata = {
     statusBarStyle: "default",
     title: "Rota da Festa",
   },
+  openGraph: {
+    title: "Rota da Festa — Jogos e Festas de Portugal",
+    description: "Todos os jogos de futebol (profissional até distrital) e festas populares num mapa interativo. Grátis.",
+    url: "https://rotadafesta.vercel.app",
+    siteName: "Rota da Festa",
+    images: [{ url: "/og-image.png", width: 1200, height: 630, alt: "Rota da Festa — Futebol, Festas, Cultura Local" }],
+    locale: "pt_PT",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Rota da Festa 🇵🇹",
+    description: "Todos os jogos e festas de Portugal. No mapa. Grátis.",
+    images: ["/og-image.png"],
+  },
+  keywords: ["futebol", "portugal", "jogos", "festas populares", "romarias", "mapa", "distrital", "formação"],
 };
 
 export const viewport: Viewport = {

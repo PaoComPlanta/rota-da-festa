@@ -260,6 +260,14 @@ export default function Home() {
             {theme === "light" ? "🌙" : "☀️"}
           </button>
 
+          {/* Submeter Evento */}
+          <Link
+            href="/submit"
+            className="hidden sm:flex items-center gap-1 text-xs font-bold text-green-700 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-3 py-2 rounded-lg hover:bg-green-200 dark:hover:bg-green-800/40 transition-colors"
+          >
+            ➕ Submeter
+          </Link>
+
           {/* Login Status */}
           {userId ? (
              <div className="hidden sm:block text-xs font-semibold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
