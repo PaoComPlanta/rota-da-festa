@@ -94,6 +94,14 @@ export default function Home() {
   const [filterDate, setFilterDate] = useState("Todos");
   const [citySelection, setCitySelection] = useState("braga");
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
+  const [installPrompt, setInstallPrompt] = useState<any>(null);
+
+  // PWA install prompt
+  useEffect(() => {
+    const handler = (e: Event) => { e.preventDefault(); setInstallPrompt(e); };
+    window.addEventListener("beforeinstallprompt", handler);
+    return () => window.removeEventListener("beforeinstallprompt", handler);
+  }, []);
 
   // Callbacks for modal
   const handleSelectEvent = useCallback((event: any) => {
@@ -527,6 +535,46 @@ export default function Home() {
                     />
                   ));
                 })()}
+
+                {/* PWA Install Banner */}
+                {installPrompt && (
+                  <div className="bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-950/30 dark:to-blue-950/30 rounded-xl p-4 mb-3 border border-green-200 dark:border-green-800">
+                    <div className="flex items-center gap-3">
+                      <span className="text-2xl">📲</span>
+                      <div className="flex-1">
+                        <p className="text-sm font-bold text-gray-900 dark:text-white">Instala a Rota da Festa</p>
+                        <p className="text-xs text-gray-500 dark:text-gray-400">Acesso rápido sem ir ao browser</p>
+                      </div>
+                      <button
+                        onClick={async () => { installPrompt.prompt(); const r = await installPrompt.userChoice; if (r.outcome === "accepted") setInstallPrompt(null); }}
+                        className="bg-green-600 text-white text-xs font-bold px-4 py-2 rounded-lg hover:bg-green-700 transition-colors"
+                      >
+                        Instalar
+                      </button>
+                    </div>
+                  </div>
+                )}
+
+                {/* SEO Footer Links (hidden on map tab) */}
+                {activeTab !== 'favoritos' && (
+                  <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
+                    <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase mb-2">Jogos por distrito</p>
+                    <div className="flex flex-wrap gap-1">
+                      {Object.entries(DISTRICT_CENTROIDS).map(([name]) => (
+                        <Link
+                          key={name}
+                          href={`/jogos/${name.toLowerCase().replace(/ /g, "-")}`}
+                          className="text-[10px] text-gray-400 dark:text-gray-500 hover:text-green-600 dark:hover:text-green-400 transition-colors"
+                        >
+                          {name}
+                        </Link>
+                      ))}
+                    </div>
+                    <p className="text-[9px] text-gray-300 dark:text-gray-600 mt-3">
+                      © {new Date().getFullYear()} Rota da Festa — Todos os jogos e festas de Portugal. Grátis.
+                    </p>
+                  </div>
+                )}
               </>
             )}
           </div>
