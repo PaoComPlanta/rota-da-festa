@@ -41,6 +41,13 @@ jobs:
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
       run: python rota-da-festa/src/scraper_festas.py
 
+    - name: Run Scraper Câmaras Municipais
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      run: python rota-da-festa/src/scraper_camaras.py
+
     - name: Commit cache de estádios
       run: |
         git config user.name "github-actions[bot]"

@@ -38,8 +38,17 @@ function haversine(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// POST /api/alertas/digest — send weekly email digests (called by cron)
+// GET /api/alertas/digest — Vercel Cron triggers via GET
+export async function GET(req: NextRequest) {
+  return handleDigest(req);
+}
+
+// POST /api/alertas/digest — manual trigger
 export async function POST(req: NextRequest) {
+  return handleDigest(req);
+}
+
+async function handleDigest(req: NextRequest) {
   const authHeader = req.headers.get("authorization");
   const cronSecret = process.env.CRON_SECRET;
   if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
