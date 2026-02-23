@@ -18,14 +18,26 @@ export default function EventCard({ event, distance, isFavorite, onSelect, onTog
   const isHoje = event.data === hoje;
   const isAmanha = event.data === amanha;
 
+  const typeConfig: Record<string, { icon: string; bg: string; text: string }> = {
+    "Futebol": { icon: "⚽", bg: "bg-green-100 dark:bg-green-900", text: "text-green-800 dark:text-green-100" },
+    "Festa": { icon: "🎪", bg: "bg-red-100 dark:bg-red-900", text: "text-red-800 dark:text-red-100" },
+    "Concerto": { icon: "🎵", bg: "bg-purple-100 dark:bg-purple-900", text: "text-purple-800 dark:text-purple-100" },
+    "Feira": { icon: "🍖", bg: "bg-amber-100 dark:bg-amber-900", text: "text-amber-800 dark:text-amber-100" },
+    "Cultura": { icon: "🎭", bg: "bg-pink-100 dark:bg-pink-900", text: "text-pink-800 dark:text-pink-100" },
+    "Desporto": { icon: "🏃", bg: "bg-cyan-100 dark:bg-cyan-900", text: "text-cyan-800 dark:text-cyan-100" },
+    "Tradição": { icon: "🔥", bg: "bg-orange-100 dark:bg-orange-900", text: "text-orange-800 dark:text-orange-100" },
+  };
+  const tc = typeConfig[event.tipo] || { icon: "📌", bg: "bg-gray-100 dark:bg-gray-700", text: "text-gray-800 dark:text-gray-100" };
+  const borderColor = isAdiado ? "border-orange-400" : isFavorite ? "border-yellow-400" : isFutebol ? "border-green-500" : "border-red-500";
+
   return (
     <div
       onClick={() => onSelect(event)}
       className={`
       relative group bg-white dark:bg-gray-800 rounded-xl shadow-sm border-l-4 p-4 mb-3 cursor-pointer
       transition-all hover:shadow-lg hover:scale-[1.01] 
-      ${isAdiado ? "border-orange-400 opacity-60" : isFutebol ? "border-green-500" : "border-red-500"}
-      ${isFavorite && !isAdiado ? "border-yellow-400" : ""}
+      ${isAdiado ? "opacity-60" : ""}
+      ${borderColor}
     `}>
       <div className="flex justify-between items-start">
         <div className="flex-1">
@@ -48,12 +60,9 @@ export default function EventCard({ event, distance, isFavorite, onSelect, onTog
             )}
             <span className={`
               text-[10px] uppercase font-bold px-2 py-0.5 rounded-full tracking-wider
-              ${isFutebol 
-                ? "bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-100" 
-                : "bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-100"
-              }
+              ${tc.bg} ${tc.text}
             `}>
-              {event.tipo}
+              {tc.icon} {event.tipo}
             </span>
             {isFutebol && event.escalao && (
               <span className={`
