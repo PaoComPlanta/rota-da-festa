@@ -77,6 +77,8 @@ export default function Home() {
   const [filterEscalao, setFilterEscalao] = useState("Todos");
   const [activeTab, setActiveTab] = useState<"lista" | "mapa">("lista");
   const [userId, setUserId] = useState<string | null>(null);
+  const [userAvatar, setUserAvatar] = useState<string | null>(null);
+  const [userName, setUserName] = useState<string | null>(null);
   const [userFavorites, setUserFavorites] = useState<number[]>(() => {
     if (typeof window !== "undefined") {
       try {
@@ -129,6 +131,8 @@ export default function Home() {
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => {
       setUserId(data.user?.id || null);
+      setUserAvatar(data.user?.user_metadata?.avatar_url || null);
+      setUserName(data.user?.user_metadata?.full_name || data.user?.email?.split("@")[0] || null);
       if (data.user) fetchFavorites(data.user.id);
     });
     fetchEvents();
@@ -268,10 +272,22 @@ export default function Home() {
             ➕ Submeter
           </Link>
 
-          {/* Login Status */}
+          {/* User Status */}
           {userId ? (
-             <div className="hidden sm:block text-xs font-semibold text-green-600 dark:text-green-400 bg-green-100 dark:bg-green-900/30 px-2 py-1 rounded">
-               Logado
+             <div className="flex items-center gap-2">
+               {userAvatar && (
+                 <img src={userAvatar} alt="" className="w-7 h-7 rounded-full border-2 border-green-500" referrerPolicy="no-referrer" />
+               )}
+               <span className="hidden sm:block text-xs font-semibold text-green-600 dark:text-green-400 max-w-[80px] truncate">
+                 {userName}
+               </span>
+               <button
+                 onClick={async () => { await supabase.auth.signOut(); setUserId(null); setUserAvatar(null); setUserName(null); }}
+                 className="text-[10px] text-gray-400 hover:text-red-500 dark:hover:text-red-400 transition-colors"
+                 title="Sair"
+               >
+                 Sair
+               </button>
              </div>
           ) : (
              <Link 
