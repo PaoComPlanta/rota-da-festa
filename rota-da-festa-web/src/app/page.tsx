@@ -27,6 +27,43 @@ function getDistance(lat1: number, lon1: number, lat2: number, lon2: number) {
   return R * c;
 }
 
+// Centróides dos distritos para atribuir distrito a cada evento via lat/lon
+const DISTRICT_CENTROIDS: Record<string, { lat: number; lon: number }> = {
+  "Braga": { lat: 41.5503, lon: -8.4270 },
+  "Porto": { lat: 41.1496, lon: -8.6109 },
+  "Aveiro": { lat: 40.6405, lon: -8.6538 },
+  "Lisboa": { lat: 38.7223, lon: -9.1393 },
+  "Leiria": { lat: 39.7437, lon: -8.8070 },
+  "Coimbra": { lat: 40.2109, lon: -8.4377 },
+  "Viseu": { lat: 40.6610, lon: -7.9097 },
+  "Setúbal": { lat: 38.5244, lon: -8.8882 },
+  "Santarém": { lat: 39.2369, lon: -8.6850 },
+  "Beja": { lat: 38.0150, lon: -7.8653 },
+  "Faro": { lat: 37.0194, lon: -7.9304 },
+  "Évora": { lat: 38.5667, lon: -7.9000 },
+  "Bragança": { lat: 41.8063, lon: -6.7572 },
+  "Castelo Branco": { lat: 39.8228, lon: -7.4906 },
+  "Guarda": { lat: 40.5373, lon: -7.2676 },
+  "Viana do Castelo": { lat: 41.6936, lon: -8.8319 },
+  "Vila Real": { lat: 41.2959, lon: -7.7464 },
+  "Portalegre": { lat: 39.2967, lon: -7.4317 },
+  "Madeira": { lat: 32.6669, lon: -16.9241 },
+  "Açores": { lat: 37.7483, lon: -25.6666 },
+};
+
+function getDistrito(lat: number, lon: number): string {
+  let closest = "Outro";
+  let minDist = Infinity;
+  for (const [name, c] of Object.entries(DISTRICT_CENTROIDS)) {
+    const d = getDistance(lat, lon, c.lat, c.lon);
+    if (d < minDist) {
+      minDist = d;
+      closest = name;
+    }
+  }
+  return closest;
+}
+
 export default function Home() {
   const { theme, toggleTheme } = useTheme();
   
@@ -48,6 +85,7 @@ export default function Home() {
     }
     return [];
   });
+  const [filterDistrito, setFilterDistrito] = useState("Todos");
   const [citySelection, setCitySelection] = useState("braga");
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
@@ -146,14 +184,26 @@ export default function Home() {
     }
   }
 
+  // Calcular distritos disponíveis a partir dos eventos
+  const availableDistritos = useMemo(() => {
+    const distritos = new Set<string>();
+    events.forEach((ev) => {
+      if (ev.latitude && ev.longitude) {
+        distritos.add(getDistrito(ev.latitude, ev.longitude));
+      }
+    });
+    return Array.from(distritos).sort();
+  }, [events]);
+
   const processedEvents = useMemo(() => {
     let filtered = events.filter((ev) => {
       const matchesSearch = ev.nome.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = filterType === "Todos" || ev.tipo === filterType;
       const matchesEscalao = filterEscalao === "Todos" || ev.escalao === filterEscalao;
+      const matchesDistrito = filterDistrito === "Todos" || (ev.latitude && ev.longitude && getDistrito(ev.latitude, ev.longitude) === filterDistrito);
       // Esconder eventos pendentes (não aprovados nem adiados)
       const isVisible = ev.status === "aprovado" || ev.status === "adiado";
-      return matchesSearch && matchesType && matchesEscalao && isVisible;
+      return matchesSearch && matchesType && matchesEscalao && matchesDistrito && isVisible;
     });
 
     if (userLocation) {
@@ -173,7 +223,7 @@ export default function Home() {
     });
 
     return filtered;
-  }, [events, userLocation, searchTerm, filterType, filterEscalao]);
+  }, [events, userLocation, searchTerm, filterType, filterEscalao, filterDistrito]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -295,6 +345,21 @@ export default function Home() {
                   );
                 })}
               </div>
+            )}
+
+            {/* Filtro por Distrito */}
+            {availableDistritos.length > 0 && (
+              <select
+                value={filterDistrito}
+                onChange={(e) => setFilterDistrito(e.target.value)}
+                className="w-full bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-2 border-none focus:ring-2 focus:ring-blue-500 outline-none font-medium cursor-pointer transition-colors"
+                aria-label="Filtrar por distrito"
+              >
+                <option value="Todos">📍 Todos os distritos</option>
+                {availableDistritos.map((d) => (
+                  <option key={d} value={d}>{d}</option>
+                ))}
+              </select>
             )}
           </div>
 

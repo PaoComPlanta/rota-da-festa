@@ -1,0 +1,27 @@
+{
+  "name": "Rota da Festa",
+  "short_name": "RotaFesta",
+  "description": "Descobre jogos de futebol e festas populares perto de ti. No mapa. Grátis.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#f9fafb",
+  "theme_color": "#16a34a",
+  "orientation": "portrait",
+  "scope": "/",
+  "lang": "pt-PT",
+  "categories": ["sports", "entertainment", "lifestyle"],
+  "icons": [
+    {
+      "src": "/icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
