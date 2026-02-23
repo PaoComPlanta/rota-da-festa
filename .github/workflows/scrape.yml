@@ -27,15 +27,19 @@ jobs:
         # Instalar o Chromium com dependências de sistema
         playwright install --with-deps chromium
 
-    - name: Run Scraper
+    - name: Run Scraper Futebol
       env:
-        # Segredos configurados no GitHub > Settings > Secrets > Actions
         SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
         SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
         GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
-      
-      # Caminho correto para o teu script na estrutura do repositório
       run: python rota-da-festa/src/scraper_mestre.py
+
+    - name: Run Scraper Festas/Cultura
+      env:
+        SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+        SUPABASE_SERVICE_KEY: ${{ secrets.SUPABASE_SERVICE_KEY }}
+        GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+      run: python rota-da-festa/src/scraper_festas.py
 
     - name: Commit cache de estádios
       run: |
