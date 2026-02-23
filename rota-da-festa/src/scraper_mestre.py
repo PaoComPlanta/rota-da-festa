@@ -1014,9 +1014,12 @@ async def scrape_zerozero():
 
             print(f"\n⚽ {len(jogos_pt)} jogos portugueses ({skipped_geo} sem geolocalização)")
 
-            # Construir resultados (sem visitar páginas individuais — frontend tem fallbacks)
+            # Construir resultados + extrair detalhes (equipas/classificação) dos jogos
             resultados = []
-            for jogo in jogos_pt:
+            detail_page = await browser.new_page()
+            await detail_page.set_extra_http_headers({"Accept-Language": "pt-PT,pt;q=0.9"})
+
+            for idx, jogo in enumerate(jogos_pt):
                 casa, fora = jogo["casa"], jogo["fora"]
                 geo = jogo["_geo"]
 
@@ -1046,8 +1049,27 @@ async def scrape_zerozero():
                     ),
                     "status": "aprovado",
                 }
+
+                # Extrair URLs de equipas e classificação a partir da página do jogo
+                if jogo.get("url"):
+                    try:
+                        details = await scrape_game_details(detail_page, jogo["url"])
+                        evento["url_equipa_casa"] = details.get("url_equipa_casa", "")
+                        evento["url_equipa_fora"] = details.get("url_equipa_fora", "")
+                        evento["url_classificacao"] = details.get("url_classificacao", "")
+                        await asyncio.sleep(0.5)
+                    except Exception as e:
+                        print(f"    ⚠️ Sem detalhes para {casa} vs {fora}: {e}")
+
+                    # Progresso
+                    if (idx + 1) % 20 == 0:
+                        print(f"  📋 Detalhes: {idx + 1}/{len(jogos_pt)} jogos processados")
+
                 resultados.append(evento)
                 print(f"  ✅ {evento['nome']} ({jogo['data']} {jogo['hora']})")
+
+            await detail_page.close()
+            print(f"\n🔗 Detalhes extraídos para {sum(1 for r in resultados if r['url_equipa_casa'])} jogos")
 
             return resultados, datas_ok
 

@@ -93,10 +93,10 @@ export default function EventCard({ event, distance, isFavorite, onSelect, onTog
           </p>
 
           {/* Metadata Grid */}
-          <div className="flex justify-between items-center text-sm bg-gray-50 dark:bg-gray-700/50 p-2.5 rounded-lg border border-gray-100 dark:border-gray-700">
+          <div className="flex justify-between items-center text-sm bg-gray-50 dark:bg-gray-800 p-2.5 rounded-lg border border-gray-100 dark:border-gray-700">
             <span className="text-gray-700 dark:text-gray-300 font-semibold">📅 {event.data}</span>
             <span className="text-gray-500 dark:text-gray-400">🕒 {event.hora}</span>
-            <span className="font-bold text-gray-900 dark:text-white px-2 py-0.5 bg-white dark:bg-gray-600 rounded shadow-sm">
+            <span className="font-bold text-gray-900 dark:text-white px-2 py-0.5 bg-white dark:bg-gray-700 rounded shadow-sm">
               {event.preco}
               {event.preco?.includes("estimado") && (
                 <span className="text-[8px] text-amber-600 dark:text-amber-400 ml-0.5" title="Preço médio estimado">⚠</span>
@@ -112,8 +112,8 @@ export default function EventCard({ event, distance, isFavorite, onSelect, onTog
           className={`
             ml-3 p-2.5 rounded-full transition-colors focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 focus:outline-none
             ${isFavorite 
-              ? "text-red-500 bg-red-50 dark:bg-red-900/30" 
-              : "text-gray-300 dark:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-700"
+              ? "text-red-500 bg-red-50 dark:bg-red-900/40" 
+              : "text-gray-300 dark:text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-700"
             }
           `}
         >

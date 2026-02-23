@@ -290,7 +290,7 @@ export default function Home() {
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
       
       {/* HEADER ACESSÍVEL */}
-      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-800 px-4 py-3 flex justify-between items-center z-20 shadow-sm transition-colors">
+      <header className="bg-white dark:bg-gray-900 border-b border-gray-200 dark:border-gray-700 px-4 py-3 flex justify-between items-center z-20 shadow-sm transition-colors">
         <div className="flex items-center gap-2">
           <span className="text-2xl" role="img" aria-label="Logo">🎉</span>
           <h1 className="text-xl font-extrabold tracking-tight bg-gradient-to-r from-green-600 to-blue-600 bg-clip-text text-transparent hidden sm:block">
@@ -367,11 +367,11 @@ export default function Home() {
         
         {/* COLUNA ESQUERDA: LISTA & FILTROS */}
         <div className={`
-            w-full md:w-1/3 lg:w-1/4 h-full bg-white dark:bg-gray-900 flex flex-col border-r border-gray-200 dark:border-gray-800 z-10 transition-colors
+            w-full md:w-1/3 lg:w-1/4 h-full bg-white dark:bg-gray-900 flex flex-col border-r border-gray-200 dark:border-gray-700 z-10 transition-colors
             ${activeTab === 'mapa' ? 'hidden md:flex' : 'flex'}
         `}>
           {/* Área de Filtros */}
-          <div className="p-4 border-b border-gray-200 dark:border-gray-800 space-y-3 bg-white dark:bg-gray-900 transition-colors">
+          <div className="p-4 border-b border-gray-200 dark:border-gray-700 space-y-3 bg-white dark:bg-gray-900 transition-colors">
             <div className="relative">
               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400">🔍</span>
               <input
@@ -605,7 +605,7 @@ export default function Home() {
       </main>
 
       {/* MOBILE TABS (Navegação Inferior) */}
-      <nav className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex justify-around p-1.5 pb-safe z-30 transition-colors">
+      <nav className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-700 flex justify-around p-1.5 pb-safe z-30 transition-colors">
         <button 
             onClick={() => setActiveTab('lista')}
             className={`flex flex-col items-center p-1.5 rounded-lg w-full transition-colors ${activeTab === 'lista' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}
