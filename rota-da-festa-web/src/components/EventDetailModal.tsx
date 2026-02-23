@@ -385,17 +385,24 @@ export default function EventDetailModal({
     return () => { document.body.style.overflow = ""; };
   }, []);
 
-  const handleShare = useCallback(async () => {
-    const shareData = {
-      title: event.nome,
-      text: `${event.nome} — ${formatDateShort(event.data)} às ${event.hora} em ${event.local}`,
-      url: window.location.href,
-    };
+  const handleShare = useCallback(async (platform?: "whatsapp" | "twitter") => {
+    const text = `${event.nome} — ${formatDateShort(event.data)} às ${event.hora} em ${event.local}`;
+    const url = window.location.href;
+
+    if (platform === "whatsapp") {
+      window.open(`https://wa.me/?text=${encodeURIComponent(`${text}\n${url}`)}`, "_blank");
+      return;
+    }
+    if (platform === "twitter") {
+      window.open(`https://twitter.com/intent/tweet?text=${encodeURIComponent(text)}&url=${encodeURIComponent(url)}`, "_blank");
+      return;
+    }
+
     try {
       if (navigator.share) {
-        await navigator.share(shareData);
+        await navigator.share({ title: event.nome, text, url });
       } else {
-        await navigator.clipboard.writeText(shareData.text);
+        await navigator.clipboard.writeText(`${text}\n${url}`);
         setShareMsg("Copiado!");
         setTimeout(() => setShareMsg(""), 2000);
       }
@@ -510,9 +517,22 @@ export default function EventDetailModal({
               <span className="text-xl group-hover:scale-110 transition-transform">📅</span>
               <span className="text-[10px] font-bold text-purple-700 dark:text-purple-300">Calendário</span>
             </button>
-            <button onClick={handleShare} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors group active:scale-95 relative">
+            <button onClick={() => handleShare()} className="flex flex-col items-center gap-1 p-3 rounded-xl bg-orange-50 dark:bg-orange-950/30 hover:bg-orange-100 dark:hover:bg-orange-900/30 transition-colors group active:scale-95 relative">
               <span className="text-xl group-hover:scale-110 transition-transform">📤</span>
               <span className="text-[10px] font-bold text-orange-700 dark:text-orange-300">{shareMsg || "Partilhar"}</span>
+            </button>
+          </div>
+
+          {/* Share buttons */}
+          <div className="flex gap-2">
+            <button onClick={() => handleShare("whatsapp")} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-green-500 hover:bg-green-600 text-white font-bold text-xs transition-colors active:scale-95">
+              <span>💬</span> WhatsApp
+            </button>
+            <button onClick={() => handleShare("twitter")} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-black dark:bg-gray-700 hover:bg-gray-800 dark:hover:bg-gray-600 text-white font-bold text-xs transition-colors active:scale-95">
+              <span>𝕏</span> Twitter
+            </button>
+            <button onClick={() => handleShare()} className="flex-1 flex items-center justify-center gap-2 py-2.5 rounded-xl bg-gray-200 dark:bg-gray-700 hover:bg-gray-300 dark:hover:bg-gray-600 text-gray-800 dark:text-gray-200 font-bold text-xs transition-colors active:scale-95">
+              <span>🔗</span> {shareMsg || "Copiar"}
             </button>
           </div>
 
