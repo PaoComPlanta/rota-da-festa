@@ -201,41 +201,93 @@ export default function EventDetailModal({
   const [isFirstMount, setIsFirstMount] = useState(true);
   const [vouCount, setVouCount] = useState(0);
   const [userVou, setUserVou] = useState(false);
+  const [reviews, setReviews] = useState<any[]>([]);
+  const [reviewText, setReviewText] = useState("");
+  const [reviewRating, setReviewRating] = useState(5);
+  const [reviewPhoto, setReviewPhoto] = useState<File | null>(null);
+  const [reviewLoading, setReviewLoading] = useState(false);
+  const [showReviewForm, setShowReviewForm] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventId = useRef<number | null>(null);
 
   const isFutebol = event.tipo === "Futebol";
   const countdown = getCountdown(event.data, event.hora);
 
-  // "Vou a este evento" — localStorage-based
+  // "Vou a este evento" — Supabase sync when logged in, localStorage fallback
   useEffect(() => {
-    try {
-      const vouData = JSON.parse(localStorage.getItem("rotadafesta_vou") || "{}");
-      setUserVou(!!vouData[event.id]);
-      // Simulate count from stored data (will be real when synced to DB)
-      const allVou = JSON.parse(localStorage.getItem("rotadafesta_vou_counts") || "{}");
-      setVouCount(allVou[event.id] || 0);
-    } catch { setUserVou(false); setVouCount(0); }
+    const loadVou = async () => {
+      try {
+        // Always load localStorage state
+        const vouData = JSON.parse(localStorage.getItem("rotadafesta_vou") || "{}");
+        setUserVou(!!vouData[event.id]);
+
+        // Fetch real count from API
+        const res = await fetch(`/api/vou?event_id=${event.id}`);
+        const data = await res.json();
+        setVouCount(data.count || 0);
+      } catch { setUserVou(false); setVouCount(0); }
+    };
+    loadVou();
   }, [event.id]);
 
-  const toggleVou = useCallback(() => {
+  const toggleVou = useCallback(async () => {
+    const newVou = !userVou;
+    setUserVou(newVou);
+    setVouCount((c) => newVou ? c + 1 : Math.max(0, c - 1));
+
+    // Always update localStorage
     try {
       const vouData = JSON.parse(localStorage.getItem("rotadafesta_vou") || "{}");
-      const counts = JSON.parse(localStorage.getItem("rotadafesta_vou_counts") || "{}");
-      if (vouData[event.id]) {
-        delete vouData[event.id];
-        counts[event.id] = Math.max(0, (counts[event.id] || 1) - 1);
-        setUserVou(false);
-      } else {
-        vouData[event.id] = true;
-        counts[event.id] = (counts[event.id] || 0) + 1;
-        setUserVou(true);
-      }
+      if (newVou) { vouData[event.id] = true; } else { delete vouData[event.id]; }
       localStorage.setItem("rotadafesta_vou", JSON.stringify(vouData));
-      localStorage.setItem("rotadafesta_vou_counts", JSON.stringify(counts));
-      setVouCount(counts[event.id] || 0);
     } catch {}
+
+    // Sync to Supabase if logged in
+    if (userId) {
+      try {
+        const res = await fetch("/api/vou", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ event_id: event.id, user_id: userId, action: newVou ? "add" : "remove" }),
+        });
+        const data = await res.json();
+        if (data.count !== undefined) setVouCount(data.count);
+      } catch {}
+    }
+  }, [event.id, userVou, userId]);
+
+  // Fetch reviews
+  useEffect(() => {
+    fetch(`/api/reviews?event_id=${event.id}`)
+      .then((r) => r.json())
+      .then((d) => setReviews(d.reviews || []))
+      .catch(() => setReviews([]));
   }, [event.id]);
+
+  const submitReview = useCallback(async () => {
+    if (!userId || !reviewText.trim()) return;
+    setReviewLoading(true);
+    try {
+      const fd = new FormData();
+      fd.append("evento_id", event.id);
+      fd.append("user_id", userId);
+      fd.append("user_name", "");
+      fd.append("texto", reviewText.trim());
+      fd.append("rating", String(reviewRating));
+      if (reviewPhoto) fd.append("foto", reviewPhoto);
+
+      const res = await fetch("/api/reviews", { method: "POST", body: fd });
+      const data = await res.json();
+      if (data.review) {
+        setReviews((prev) => [data.review, ...prev]);
+        setReviewText("");
+        setReviewRating(5);
+        setReviewPhoto(null);
+        setShowReviewForm(false);
+      }
+    } catch {}
+    setReviewLoading(false);
+  }, [event.id, userId, reviewText, reviewRating, reviewPhoto]);
 
   // Scroll to top on event change (no flicker)
   useEffect(() => {
@@ -606,6 +658,85 @@ export default function EventDetailModal({
               </div>
             </div>
           )}
+
+          {/* Reviews & Fotos */}
+          <div>
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">💬 Reviews ({reviews.length})</h3>
+              {userId && (
+                <button
+                  onClick={() => setShowReviewForm((s) => !s)}
+                  className="text-[10px] font-bold text-blue-600 dark:text-blue-400 hover:underline"
+                >
+                  {showReviewForm ? "Cancelar" : "+ Escrever"}
+                </button>
+              )}
+            </div>
+
+            {/* Review Form */}
+            {showReviewForm && userId && (
+              <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3 mb-3 space-y-2">
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5].map((star) => (
+                    <button key={star} onClick={() => setReviewRating(star)} className="text-lg">
+                      {star <= reviewRating ? "⭐" : "☆"}
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={reviewText}
+                  onChange={(e) => setReviewText(e.target.value)}
+                  placeholder="O que achaste deste evento?"
+                  maxLength={500}
+                  className="w-full bg-white dark:bg-gray-700 rounded-lg p-2 text-sm text-gray-900 dark:text-white border border-gray-200 dark:border-gray-600 resize-none h-16 focus:ring-2 focus:ring-blue-500 outline-none"
+                />
+                <div className="flex items-center gap-2">
+                  <label className="flex items-center gap-1 text-[10px] text-gray-500 dark:text-gray-400 cursor-pointer bg-gray-100 dark:bg-gray-700 px-2 py-1 rounded-lg hover:bg-gray-200 dark:hover:bg-gray-600">
+                    📷 Foto
+                    <input
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      onChange={(e) => setReviewPhoto(e.target.files?.[0] || null)}
+                    />
+                  </label>
+                  {reviewPhoto && <span className="text-[10px] text-green-600 dark:text-green-400">✓ {reviewPhoto.name}</span>}
+                  <button
+                    onClick={submitReview}
+                    disabled={reviewLoading || !reviewText.trim()}
+                    className="ml-auto text-xs font-bold bg-blue-600 text-white px-3 py-1 rounded-lg hover:bg-blue-700 disabled:opacity-50 transition-colors"
+                  >
+                    {reviewLoading ? "..." : "Enviar"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Review List */}
+            {reviews.length > 0 ? (
+              <div className="space-y-2">
+                {reviews.slice(0, 5).map((r: any) => (
+                  <div key={r.id} className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-3">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-[10px] text-yellow-500">{"⭐".repeat(r.rating || 5)}</span>
+                      <span className="text-[10px] font-bold text-gray-600 dark:text-gray-400">{r.user_name || "Anónimo"}</span>
+                      <span className="text-[10px] text-gray-400 dark:text-gray-500 ml-auto">
+                        {new Date(r.created_at).toLocaleDateString("pt-PT")}
+                      </span>
+                    </div>
+                    <p className="text-sm text-gray-800 dark:text-gray-200">{r.texto}</p>
+                    {r.foto_url && (
+                      <img src={r.foto_url} alt="Foto do evento" className="mt-2 rounded-lg w-full max-h-40 object-cover" />
+                    )}
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="text-[11px] text-gray-400 dark:text-gray-500 italic">
+                {userId ? "Sê o primeiro a deixar uma review! 📝" : "Faz login para deixar uma review 📝"}
+              </p>
+            )}
+          </div>
 
           {/* Bottom spacer for safe area */}
           <div className="h-2" />
