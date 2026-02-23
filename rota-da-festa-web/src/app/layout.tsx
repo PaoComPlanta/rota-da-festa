@@ -1,8 +1,10 @@
 import type { Metadata, Viewport } from "next";
+import { Analytics } from "@vercel/analytics/next";
 import { ThemeProvider } from "@/components/ThemeProvider";
 import "./globals.css";
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://rotadafesta.vercel.app"),
   title: "Rota da Festa 🇵🇹",
   description: "Descobre jogos de futebol e festas populares perto de ti. No mapa. Grátis.",
   manifest: "/manifest.json",
@@ -48,6 +50,7 @@ export default function RootLayout({
       </head>
       <body className="antialiased bg-gray-50 text-gray-900 dark:bg-gray-950 dark:text-gray-100 transition-colors duration-300">
         <ThemeProvider>{children}</ThemeProvider>
+        <Analytics />
         <script
           dangerouslySetInnerHTML={{
             __html: `

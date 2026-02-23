@@ -91,6 +91,7 @@ export default function Home() {
     return [];
   });
   const [filterDistrito, setFilterDistrito] = useState("Todos");
+  const [filterDate, setFilterDate] = useState("Todos");
   const [citySelection, setCitySelection] = useState("braga");
   const [selectedEvent, setSelectedEvent] = useState<any | null>(null);
 
@@ -210,6 +211,24 @@ export default function Home() {
   }, [events]);
 
   const processedEvents = useMemo(() => {
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const todayStr = today.toISOString().split("T")[0];
+
+    const getEndOfWeekend = () => {
+      const d = new Date(today);
+      const day = d.getDay(); // 0=Sun
+      const daysUntilSun = day === 0 ? 0 : 7 - day;
+      d.setDate(d.getDate() + daysUntilSun);
+      return d.toISOString().split("T")[0];
+    };
+
+    const getEndOfNextWeek = () => {
+      const d = new Date(today);
+      d.setDate(d.getDate() + 7);
+      return d.toISOString().split("T")[0];
+    };
+
     let filtered = events.filter((ev) => {
       const matchesSearch = ev.nome.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesType = filterType === "Todos" || (() => {
@@ -226,9 +245,18 @@ export default function Home() {
       })();
       const matchesEscalao = filterEscalao === "Todos" || ev.escalao === filterEscalao;
       const matchesDistrito = filterDistrito === "Todos" || (ev.latitude && ev.longitude && getDistrito(ev.latitude, ev.longitude) === filterDistrito);
-      // Esconder eventos pendentes (não aprovados nem adiados)
+      const matchesDate = filterDate === "Todos" || (() => {
+        const evDate = ev.data;
+        if (!evDate) return true;
+        switch (filterDate) {
+          case "Hoje": return evDate === todayStr;
+          case "FDS": return evDate >= todayStr && evDate <= getEndOfWeekend();
+          case "Semana": return evDate >= todayStr && evDate <= getEndOfNextWeek();
+          default: return true;
+        }
+      })();
       const isVisible = ev.status === "aprovado" || ev.status === "adiado";
-      return matchesSearch && matchesType && matchesEscalao && matchesDistrito && isVisible;
+      return matchesSearch && matchesType && matchesEscalao && matchesDistrito && matchesDate && isVisible;
     });
 
     if (userLocation) {
@@ -248,7 +276,7 @@ export default function Home() {
     });
 
     return filtered;
-  }, [events, userLocation, searchTerm, filterType, filterEscalao, filterDistrito]);
+  }, [events, userLocation, searchTerm, filterType, filterEscalao, filterDistrito, filterDate]);
 
   return (
     <div className="h-screen w-screen flex flex-col overflow-hidden bg-gray-50 dark:bg-gray-950 text-gray-900 dark:text-gray-100 transition-colors duration-300">
@@ -418,6 +446,35 @@ export default function Home() {
                 ))}
               </select>
             )}
+
+            {/* Filtro por Data */}
+            <div className="flex gap-2" role="tablist" aria-label="Filtros de data">
+              {[
+                { label: "Todos", icon: "📅" },
+                { label: "Hoje", icon: "🔴" },
+                { label: "FDS", icon: "🎉" },
+                { label: "Semana", icon: "🗓" },
+              ].map(({ label, icon }) => {
+                const isActive = filterDate === label;
+                return (
+                  <button
+                    key={label}
+                    role="tab"
+                    aria-selected={isActive}
+                    onClick={() => setFilterDate(label)}
+                    className={`
+                      flex-1 px-2 py-1.5 rounded-lg text-xs font-bold whitespace-nowrap transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none flex items-center justify-center gap-1
+                      ${isActive
+                        ? "bg-green-600 text-white shadow-md"
+                        : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
+                      }
+                    `}
+                  >
+                    <span>{icon}</span> {label === "FDS" ? "Fim de semana" : label === "Semana" ? "7 dias" : label}
+                  </button>
+                );
+              })}
+            </div>
           </div>
 
           {/* Lista Scrollável */}
