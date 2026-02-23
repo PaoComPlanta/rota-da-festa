@@ -688,28 +688,35 @@ def limpar_eventos_concluidos():
 
 
 def extract_games_from_page(html: str, comp_name: str = "") -> list:
-    """Extrai jogos de qualquer página ZeroZero (edição, calendário, competição)."""
+    """Extrai jogos de qualquer página ZeroZero (edição, calendário, competição).
+    Prioriza linhas dentro de table.zztable (conteúdo real) para evitar sidebar."""
     soup = BeautifulSoup(html, "html.parser")
     games = []
     hoje = datetime.now()
-    limite = hoje + timedelta(days=7)
+    limite = hoje + timedelta(days=14)
     seen = set()
 
-    # Tentar extrair nome da competição do header da página
     if not comp_name:
         h1 = soup.select_one("h1, .header h2, .comp_title")
         comp_name = h1.get_text(strip=True) if h1 else ""
 
-    for match_link in soup.select("a[href*='/jogo/']"):
+    # Priorizar jogos dentro de tabelas (conteúdo principal, não sidebar)
+    tables = soup.select("table.zztable")
+    if tables:
+        game_links = []
+        for table in tables:
+            game_links.extend(table.select("a[href*='/jogo/']"))
+    else:
+        game_links = soup.select("a[href*='/jogo/']")
+
+    for match_link in game_links:
         href = match_link.get("href", "")
         if not href or href in seen:
             continue
         seen.add(href)
 
-        # Data do URL do jogo (formato: /jogo/YYYY-MM-DD/...)
         url_date = re.search(r'/jogo/(\d{4}-\d{2}-\d{2})', href)
         if not url_date:
-            # Tentar encontrar data no contexto (parent row/div)
             parent = match_link.find_parent(["tr", "li", "div"])
             if parent:
                 dm = re.search(r'(\d{4}-\d{2}-\d{2})', str(parent))
@@ -726,20 +733,21 @@ def extract_games_from_page(html: str, comp_name: str = "") -> list:
         except Exception:
             continue
 
-        # Contexto: linha/div que contém o link do jogo
         parent = match_link.find_parent(["tr", "li", "div"])
         if not parent:
             parent = match_link.parent
 
-        # Equipas: links /equipa/ no contexto
+        # Equipas: links /equipa/ com texto não-vazio (ignorar links de logos)
         team_links = parent.select("a[href*='/equipa/']") if parent else []
-        casa, fora = None, None
+        named_teams = [t.get_text(strip=True) for t in team_links if t.get_text(strip=True)]
+        # Deduplicate mantendo ordem
+        unique_teams = list(dict.fromkeys(named_teams))
 
-        if len(team_links) >= 2:
-            casa = team_links[0].get_text(strip=True)
-            fora = team_links[1].get_text(strip=True)
+        casa, fora = None, None
+        if len(unique_teams) >= 2:
+            casa = unique_teams[0]
+            fora = unique_teams[1]
         else:
-            # Fallback: texto do link do jogo (ex: "Team A vs Team B")
             text = match_link.get_text(strip=True)
             vs = re.match(r'(.+?)\s+(?:vs|x|\d+-\d+)\s+(.+)', text, re.IGNORECASE)
             if vs:
@@ -749,7 +757,6 @@ def extract_games_from_page(html: str, comp_name: str = "") -> list:
         if not casa or not fora:
             continue
 
-        # Hora
         hora = "A definir"
         ctx_text = parent.get_text() if parent else ""
         time_match = re.search(r'\b(\d{2}:\d{2})\b', ctx_text)
@@ -865,11 +872,11 @@ async def scrape_zerozero():
 
                     comp_soup = BeautifulSoup(html, "html.parser")
 
-                    # 2. Recolher links de edições directamente
+                    # 2. Recolher links de edições directamente (só época atual)
                     edition_urls = []
                     for link in comp_soup.select("a[href*='/edicao/']"):
                         href = link.get("href", "")
-                        if href:
+                        if href and ("2025-26" in href or "2025-2026" in href or "2026" in href):
                             full = href if href.startswith("http") else base + href
                             if full not in edition_urls:
                                 edition_urls.append(full)
@@ -897,7 +904,7 @@ async def scrape_zerozero():
                                 sc_soup = BeautifulSoup(sc_html, "html.parser")
                                 for link in sc_soup.select("a[href*='/edicao/']"):
                                     href = link.get("href", "")
-                                    if href:
+                                    if href and ("2025-26" in href or "2025-2026" in href or "2026" in href):
                                         full = href if href.startswith("http") else base + href
                                         if full not in edition_urls:
                                             edition_urls.append(full)
@@ -905,8 +912,8 @@ async def scrape_zerozero():
                             except Exception:
                                 continue
 
-                    # Limitar edições por AF
-                    edition_urls = edition_urls[:15]
+                    # Limitar edições por AF (muitas séries/escalões)
+                    edition_urls = edition_urls[:30]
                     print(f"     📖 {len(edition_urls)} edições encontradas")
 
                     # 4. Tentar extrair jogos directamente da página (alguns mostram próximos jogos)
