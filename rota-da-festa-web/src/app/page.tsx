@@ -558,6 +558,44 @@ export default function Home() {
                 {/* SEO Footer Links (hidden on map tab) */}
                 {activeTab !== 'favoritos' && (
                   <div className="mt-4 pt-4 border-t border-gray-200 dark:border-gray-800">
+                    {/* Alert subscription */}
+                    <div className="mb-4 bg-gradient-to-r from-green-50 to-blue-50 dark:from-green-900/20 dark:to-blue-900/20 rounded-xl p-4 border border-green-200 dark:border-green-800/40">
+                      <p className="text-sm font-bold text-gray-800 dark:text-gray-200 mb-2">🔔 Receber alertas semanais</p>
+                      <form
+                        onSubmit={async (e) => {
+                          e.preventDefault();
+                          const form = e.target as HTMLFormElement;
+                          const emailInput = form.elements.namedItem("alertEmail") as HTMLInputElement;
+                          const distritoInput = form.elements.namedItem("alertDistrito") as HTMLSelectElement;
+                          try {
+                            const res = await fetch("/api/alertas", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ email: emailInput.value, distrito: distritoInput.value }),
+                            });
+                            const data = await res.json();
+                            if (data.ok) {
+                              alert("✅ Alerta criado! Receberás um email semanal.");
+                              emailInput.value = "";
+                            } else {
+                              alert(data.error || "Erro ao criar alerta.");
+                            }
+                          } catch { alert("Erro de ligação."); }
+                        }}
+                        className="flex flex-col gap-2"
+                      >
+                        <input name="alertEmail" type="email" required placeholder="O teu email" className="w-full bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-green-500 outline-none" />
+                        <div className="flex gap-2">
+                          <select name="alertDistrito" className="flex-1 bg-white dark:bg-gray-800 text-gray-900 dark:text-white border border-gray-300 dark:border-gray-600 rounded-lg px-3 py-2 text-xs focus:ring-2 focus:ring-green-500 outline-none">
+                            {Object.keys(DISTRICT_CENTROIDS).map(d => <option key={d} value={d}>{d}</option>)}
+                          </select>
+                          <button type="submit" className="bg-green-600 text-white px-4 py-2 rounded-lg text-xs font-bold hover:bg-green-700 transition-colors active:scale-95">
+                            Subscrever
+                          </button>
+                        </div>
+                      </form>
+                    </div>
+
                     <p className="text-[10px] font-bold text-gray-400 dark:text-gray-500 uppercase mb-2">Jogos por distrito</p>
                     <div className="flex flex-wrap gap-1">
                       {Object.entries(DISTRICT_CENTROIDS).map(([name]) => (
@@ -572,6 +610,7 @@ export default function Home() {
                     </div>
                     <p className="text-[9px] text-gray-300 dark:text-gray-600 mt-3">
                       © {new Date().getFullYear()} Rota da Festa — Todos os jogos e festas de Portugal. Grátis.
+                      {' '}<Link href="/negocios" className="text-green-500 hover:text-green-400">🏪 Negócios</Link>
                     </p>
                   </div>
                 )}
