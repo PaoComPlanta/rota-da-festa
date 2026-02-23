@@ -72,6 +72,7 @@ export default function Home() {
   const DEFAULT_BRAGA = { lat: 41.5503, lng: -8.4270 };
   
   const [events, setEvents] = useState<any[]>([]);
+  const [negocios, setNegocios] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(DEFAULT_BRAGA);
   const [searchTerm, setSearchTerm] = useState("");
@@ -167,8 +168,12 @@ export default function Home() {
 
   async function fetchEvents() {
     setLoading(true);
-    const { data, error } = await supabase.from("eventos").select("*");
-    if (!error && data) setEvents(data);
+    const [evRes, negRes] = await Promise.all([
+      supabase.from("eventos").select("*"),
+      supabase.from("negocios").select("*").eq("ativo", true),
+    ]);
+    if (!evRes.error && evRes.data) setEvents(evRes.data);
+    if (!negRes.error && negRes.data) setNegocios(negRes.data);
     setLoading(false);
   }
 
@@ -477,6 +482,7 @@ export default function Home() {
         `}>
           <MapComponent 
             events={processedEvents} 
+            negocios={negocios}
             userLocation={userLocation}
             onSelectEvent={handleSelectEvent}
           />

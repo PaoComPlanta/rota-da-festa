@@ -207,6 +207,7 @@ export default function EventDetailModal({
   const [reviewPhoto, setReviewPhoto] = useState<File | null>(null);
   const [reviewLoading, setReviewLoading] = useState(false);
   const [showReviewForm, setShowReviewForm] = useState(false);
+  const [nearbyBiz, setNearbyBiz] = useState<any[]>([]);
   const scrollRef = useRef<HTMLDivElement>(null);
   const prevEventId = useRef<number | null>(null);
 
@@ -263,6 +264,16 @@ export default function EventDetailModal({
       .then((d) => setReviews(d.reviews || []))
       .catch(() => setReviews([]));
   }, [event.id]);
+
+  // Fetch nearby businesses
+  useEffect(() => {
+    if (event.latitude && event.longitude) {
+      fetch(`/api/negocios?lat=${event.latitude}&lon=${event.longitude}&radius=3`)
+        .then((r) => r.json())
+        .then((d) => setNearbyBiz(d.negocios || []))
+        .catch(() => setNearbyBiz([]));
+    }
+  }, [event.latitude, event.longitude]);
 
   const submitReview = useCallback(async () => {
     if (!userId || !reviewText.trim()) return;
@@ -629,6 +640,37 @@ export default function EventDetailModal({
             <div className="bg-gray-50 dark:bg-gray-800/50 rounded-xl p-4">
               <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase mb-2">📝 Descrição</h3>
               <p className="text-sm text-gray-700 dark:text-gray-300 leading-relaxed">{event.descricao}</p>
+            </div>
+          )}
+
+          {/* Comer e Beber Perto (Sponsored) */}
+          {nearbyBiz.length > 0 && (
+            <div>
+              <div className="flex items-center gap-1.5 mb-2">
+                <h3 className="text-xs font-bold text-gray-500 dark:text-gray-400 uppercase">🍽️ Comer e Beber Perto</h3>
+                <span className="text-[8px] bg-yellow-100 dark:bg-yellow-900/30 text-yellow-700 dark:text-yellow-400 px-1.5 py-0.5 rounded font-bold">PARCEIRO</span>
+              </div>
+              <div className="space-y-2">
+                {nearbyBiz.map((biz: any) => (
+                  <div key={biz.id} className="p-3 rounded-xl bg-gradient-to-r from-yellow-50 to-orange-50 dark:from-yellow-950/20 dark:to-orange-950/20 border border-yellow-200 dark:border-yellow-800/30">
+                    <div className="flex items-center gap-2">
+                      <span className="text-lg">🏪</span>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-sm text-gray-900 dark:text-white truncate">{biz.nome}</p>
+                        <p className="text-[11px] text-gray-500 dark:text-gray-400">{biz.tipo}</p>
+                      </div>
+                      {biz.telefone && (
+                        <a href={`tel:${biz.telefone}`} className="text-xs text-blue-600 dark:text-blue-400 font-bold">📞</a>
+                      )}
+                    </div>
+                    {biz.cupao && (
+                      <div className="mt-2 bg-green-100 dark:bg-green-900/30 rounded-lg px-2.5 py-1.5 text-center">
+                        <p className="text-xs font-bold text-green-700 dark:text-green-400">🎁 {biz.cupao}</p>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
             </div>
           )}
 
