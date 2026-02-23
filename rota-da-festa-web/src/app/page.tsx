@@ -5,6 +5,7 @@ import dynamic from "next/dynamic";
 import { supabase } from "@/utils/supabase/client";
 import EventCard from "@/components/EventCard";
 import EventDetailModal from "@/components/EventDetailModal";
+import ChatWidget from "@/components/ChatWidget";
 import Link from "next/link";
 import { useTheme } from "@/components/ThemeProvider";
 
@@ -71,11 +72,12 @@ export default function Home() {
   const DEFAULT_BRAGA = { lat: 41.5503, lng: -8.4270 };
   
   const [events, setEvents] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(DEFAULT_BRAGA);
   const [searchTerm, setSearchTerm] = useState("");
   const [filterType, setFilterType] = useState("Todos");
   const [filterEscalao, setFilterEscalao] = useState("Todos");
-  const [activeTab, setActiveTab] = useState<"lista" | "mapa">("lista");
+  const [activeTab, setActiveTab] = useState<"lista" | "mapa" | "favoritos">("lista");
   const [userId, setUserId] = useState<string | null>(null);
   const [userAvatar, setUserAvatar] = useState<string | null>(null);
   const [userName, setUserName] = useState<string | null>(null);
@@ -153,18 +155,21 @@ export default function Home() {
           }
         );
       }
-    } else if (val === "braga") {
-      setUserLocation(DEFAULT_BRAGA);
-    } else if (val === "porto") {
-      setUserLocation({ lat: 41.1579, lng: -8.6291 });
-    } else if (val === "aveiro") {
-      setUserLocation({ lat: 40.6405, lng: -8.6538 });
+    } else {
+      const district = Object.entries(DISTRICT_CENTROIDS).find(
+        ([name]) => name.toLowerCase().replace(/ /g, "-") === val
+      );
+      if (district) {
+        setUserLocation({ lat: district[1].lat, lng: district[1].lon });
+      }
     }
   };
 
   async function fetchEvents() {
+    setLoading(true);
     const { data, error } = await supabase.from("eventos").select("*");
     if (!error && data) setEvents(data);
+    setLoading(false);
   }
 
   async function fetchFavorites(uid: string) {
@@ -202,7 +207,18 @@ export default function Home() {
   const processedEvents = useMemo(() => {
     let filtered = events.filter((ev) => {
       const matchesSearch = ev.nome.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesType = filterType === "Todos" || ev.tipo === filterType;
+      const matchesType = filterType === "Todos" || (() => {
+        const tipo = (ev.tipo || "").toLowerCase();
+        const cat = (ev.categoria || "").toLowerCase();
+        switch (filterType) {
+          case "Futebol": return tipo === "futebol" || tipo.includes("futebol");
+          case "Festas": return tipo === "festa" || cat.includes("festa") || cat.includes("romaria") || cat.includes("tradição");
+          case "Concertos": return tipo === "concerto" || cat.includes("concerto") || cat.includes("música") || cat.includes("festival");
+          case "Feiras": return tipo === "feira" || cat.includes("feira") || cat.includes("gastronomia") || cat.includes("mercado");
+          case "Cultura": return tipo === "cultura" || cat.includes("teatro") || cat.includes("exposição") || cat.includes("cultural");
+          default: return true;
+        }
+      })();
       const matchesEscalao = filterEscalao === "Todos" || ev.escalao === filterEscalao;
       const matchesDistrito = filterDistrito === "Todos" || (ev.latitude && ev.longitude && getDistrito(ev.latitude, ev.longitude) === filterDistrito);
       // Esconder eventos pendentes (não aprovados nem adiados)
@@ -254,10 +270,10 @@ export default function Home() {
             className="bg-gray-100 dark:bg-gray-800 text-gray-800 dark:text-gray-200 text-sm rounded-lg px-3 py-2 border-none focus:ring-2 focus:ring-blue-500 outline-none font-medium cursor-pointer transition-colors"
             aria-label="Escolher localização"
           >
-            <option value="braga">📍 Braga</option>
-            <option value="porto">📍 Porto</option>
-            <option value="aveiro">📍 Aveiro</option>
             <option value="gps">🎯 Minha Localização</option>
+            {Object.keys(DISTRICT_CENTROIDS).map((name) => (
+              <option key={name} value={name.toLowerCase().replace(/ /g, "-")}>📍 {name}</option>
+            ))}
           </select>
 
           {/* Botão de Tema */}
@@ -328,30 +344,37 @@ export default function Home() {
             </div>
             
             <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar" role="tablist" aria-label="Filtros de tipo">
-              {["Todos", "Futebol", "Festa/Romaria"].map((type) => {
-                const isActive = filterType === type;
+              {[
+                { label: "Todos", icon: "🌟" },
+                { label: "Futebol", icon: "⚽" },
+                { label: "Festas", icon: "🎪" },
+                { label: "Concertos", icon: "🎵" },
+                { label: "Feiras", icon: "🍖" },
+                { label: "Cultura", icon: "🎭" },
+              ].map(({ label, icon }) => {
+                const isActive = filterType === label;
                 return (
                   <button
-                    key={type}
+                    key={label}
                     role="tab"
                     aria-selected={isActive}
-                    onClick={() => { setFilterType(type); if (type !== "Futebol") setFilterEscalao("Todos"); }}
+                    onClick={() => { setFilterType(label); if (label !== "Futebol") setFilterEscalao("Todos"); }}
                     className={`
-                      px-4 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none
+                      px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition-all focus:ring-2 focus:ring-blue-500 focus:outline-none flex items-center gap-1
                       ${isActive 
                         ? "bg-black dark:bg-white text-white dark:text-black shadow-md" 
                         : "bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-200 dark:hover:bg-gray-700"
                       }
                     `}
                   >
-                    {type}
+                    <span>{icon}</span> {label}
                   </button>
                 );
               })}
             </div>
 
             {/* Filtro de Escalão (só visível para Futebol ou Todos) */}
-            {filterType !== "Festa/Romaria" && (
+            {(filterType === "Todos" || filterType === "Futebol") && (
               <div className="flex gap-2 overflow-x-auto pb-1 hide-scrollbar" role="tablist" aria-label="Filtros de escalão">
                 {["Todos", "Seniores", "Sub-23", "Sub-19", "Sub-17", "Sub-15", "Sub-13", "Benjamins", "Traquinas"].map((esc) => {
                   const isActive = filterEscalao === esc;
@@ -394,22 +417,55 @@ export default function Home() {
 
           {/* Lista Scrollável */}
           <div className="flex-1 overflow-y-auto p-4 bg-gray-50 dark:bg-gray-950/50 transition-colors scroll-smooth">
-            {processedEvents.length === 0 ? (
-                <div className="flex flex-col items-center justify-center h-40 text-center text-gray-400 dark:text-gray-500 mt-10">
-                    <span className="text-3xl mb-2">🤔</span>
-                    <p className="font-medium">Nenhum evento encontrado.</p>
+            {loading ? (
+              // Skeleton loading
+              Array.from({ length: 5 }).map((_, i) => (
+                <div key={i} className="bg-white dark:bg-gray-800 rounded-xl p-4 mb-3 animate-pulse">
+                  <div className="flex justify-between items-start mb-3">
+                    <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded w-3/4" />
+                    <div className="h-5 w-5 bg-gray-200 dark:bg-gray-700 rounded-full" />
+                  </div>
+                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-1/2 mb-2" />
+                  <div className="h-3 bg-gray-200 dark:bg-gray-700 rounded w-2/3" />
                 </div>
+              ))
             ) : (
-                processedEvents.map((event) => (
-                <EventCard
-                    key={event.id}
-                    event={event}
-                    distance={event.distance || null}
-                    isFavorite={userFavorites.includes(event.id)}
-                    onSelect={handleSelectEvent}
-                    onToggleFavorite={handleToggleFavorite}
-                />
-                ))
+              <>
+                {activeTab === 'favoritos' && (
+                  <div className="flex items-center gap-2 mb-3">
+                    <span className="text-lg">❤️</span>
+                    <h2 className="text-sm font-bold text-gray-700 dark:text-gray-300">Meus Favoritos ({userFavorites.length})</h2>
+                  </div>
+                )}
+                {(() => {
+                  const displayEvents = activeTab === 'favoritos' 
+                    ? processedEvents.filter(e => userFavorites.includes(e.id))
+                    : processedEvents;
+                  
+                  if (displayEvents.length === 0) {
+                    return (
+                      <div className="flex flex-col items-center justify-center h-40 text-center text-gray-400 dark:text-gray-500 mt-10">
+                        <span className="text-3xl mb-2">{activeTab === 'favoritos' ? '💔' : '🤔'}</span>
+                        <p className="font-medium">
+                          {activeTab === 'favoritos' 
+                            ? 'Ainda sem favoritos. Toca no ❤️ num evento para guardar!' 
+                            : 'Nenhum evento encontrado.'}
+                        </p>
+                      </div>
+                    );
+                  }
+                  return displayEvents.map((event) => (
+                    <EventCard
+                      key={event.id}
+                      event={event}
+                      distance={event.distance || null}
+                      isFavorite={userFavorites.includes(event.id)}
+                      onSelect={handleSelectEvent}
+                      onToggleFavorite={handleToggleFavorite}
+                    />
+                  ));
+                })()}
+              </>
             )}
           </div>
         </div>
@@ -417,7 +473,7 @@ export default function Home() {
         {/* COLUNA DIREITA: MAPA */}
         <div className={`
             w-full md:w-2/3 lg:w-3/4 h-full bg-gray-200 dark:bg-gray-800 relative transition-colors
-            ${activeTab === 'lista' ? 'hidden md:block' : 'block'}
+            ${activeTab === 'mapa' ? 'block' : 'hidden md:block'}
         `}>
           <MapComponent 
             events={processedEvents} 
@@ -438,21 +494,38 @@ export default function Home() {
       </main>
 
       {/* MOBILE TABS (Navegação Inferior) */}
-      <nav className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex justify-around p-2 pb-safe z-30 transition-colors">
+      <nav className="md:hidden bg-white dark:bg-gray-900 border-t border-gray-200 dark:border-gray-800 flex justify-around p-1.5 pb-safe z-30 transition-colors">
         <button 
             onClick={() => setActiveTab('lista')}
-            className={`flex flex-col items-center p-2 rounded-lg w-full transition-colors ${activeTab === 'lista' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}
+            className={`flex flex-col items-center p-1.5 rounded-lg w-full transition-colors ${activeTab === 'lista' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}
         >
-            <span className="text-xl mb-1">📅</span>
-            <span className="text-xs font-bold">Lista</span>
+            <span className="text-lg mb-0.5">📅</span>
+            <span className="text-[10px] font-bold">Lista</span>
         </button>
         <button 
             onClick={() => setActiveTab('mapa')}
-            className={`flex flex-col items-center p-2 rounded-lg w-full transition-colors ${activeTab === 'mapa' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}
+            className={`flex flex-col items-center p-1.5 rounded-lg w-full transition-colors ${activeTab === 'mapa' ? 'text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20' : 'text-gray-400 dark:text-gray-500'}`}
         >
-            <span className="text-xl mb-1">🗺️</span>
-            <span className="text-xs font-bold">Mapa</span>
+            <span className="text-lg mb-0.5">🗺️</span>
+            <span className="text-[10px] font-bold">Mapa</span>
         </button>
+        <button
+            onClick={() => setActiveTab('favoritos')}
+            className={`flex flex-col items-center p-1.5 rounded-lg w-full transition-colors relative ${activeTab === 'favoritos' ? 'text-pink-600 dark:text-pink-400 bg-pink-50 dark:bg-pink-900/20' : 'text-gray-400 dark:text-gray-500'}`}
+        >
+            <span className="text-lg mb-0.5">❤️</span>
+            <span className="text-[10px] font-bold">Favoritos</span>
+            {userFavorites.length > 0 && (
+              <span className="absolute top-0.5 right-1/4 bg-pink-500 text-white text-[8px] font-bold min-w-[14px] h-[14px] flex items-center justify-center rounded-full">{userFavorites.length}</span>
+            )}
+        </button>
+        <Link
+            href="/submit"
+            className="flex flex-col items-center p-1.5 rounded-lg w-full transition-colors text-gray-400 dark:text-gray-500 active:text-green-600 dark:active:text-green-400"
+        >
+            <span className="text-lg mb-0.5">➕</span>
+            <span className="text-[10px] font-bold">Submeter</span>
+        </Link>
       </nav>
 
       {/* Event Detail Modal */}
@@ -470,6 +543,9 @@ export default function Home() {
           onSelectEvent={handleSelectEvent}
         />
       )}
+
+      {/* Chatbot Groq */}
+      <ChatWidget />
     </div>
   );
 }
