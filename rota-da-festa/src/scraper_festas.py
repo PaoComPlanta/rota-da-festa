@@ -231,8 +231,23 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
         for script in scripts:
             try:
                 data = json.loads(script.string)
-                items = data if isinstance(data, list) else [data]
-                for item in items:
+
+                # Normalizar: extrair eventos de diferentes estruturas JSON-LD
+                events_raw = []
+                if isinstance(data, list):
+                    events_raw = data
+                elif isinstance(data, dict):
+                    if data.get("@type") == "Event":
+                        events_raw = [data]
+                    elif "itemListElement" in data:
+                        # Eventbrite usa ItemList → ListItem → item (Event)
+                        for list_item in data["itemListElement"]:
+                            inner = list_item.get("item", list_item)
+                            events_raw.append(inner)
+                    else:
+                        events_raw = [data]
+
+                for item in events_raw:
                     if item.get("@type") != "Event":
                         continue
 
@@ -431,11 +446,27 @@ async def main():
     todos_eventos = []
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-            locale="pt-PT",
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
         )
+        context = await browser.new_context(
+            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+            locale="pt-PT",
+            timezone_id="Europe/Lisbon",
+        )
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'languages', { get: () => ['pt-PT', 'pt', 'en-US', 'en'] });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
+        """)
         page = await context.new_page()
 
         # === FONTE 1: Eventbrite Portugal ===

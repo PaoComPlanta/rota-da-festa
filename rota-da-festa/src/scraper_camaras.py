@@ -57,17 +57,24 @@ CAMARAS = [
         "tipo": "agendalx",
     },
     {
-        "nome": "CM Porto",
-        "url": "https://www.porto.pt/pt/agenda",
-        "concelho": "Porto",
-        "lat": 41.1496, "lon": -8.6109,
-        "tipo": "porto",
+        "nome": "CM Faro",
+        "url": "https://www.cm-faro.pt/pt/agenda.aspx",
+        "concelho": "Faro",
+        "lat": 37.0194, "lon": -7.9304,
+        "tipo": "faro",
     },
     {
-        "nome": "CM Braga",
-        "url": "https://www.cm-braga.pt/pt/agenda",
-        "concelho": "Braga",
-        "lat": 41.5503, "lon": -8.4270,
+        "nome": "CM Évora",
+        "url": "https://www.cm-evora.pt/municipe/agenda-e-noticias/agenda/lista-de-eventos/",
+        "concelho": "Évora",
+        "lat": 38.5667, "lon": -7.9000,
+        "tipo": "evora",
+    },
+    {
+        "nome": "CM Coimbra",
+        "url": "https://www.cm-coimbra.pt/areas/cultura-e-desporto/agenda-cultural",
+        "concelho": "Coimbra",
+        "lat": 40.2109, "lon": -8.4377,
         "tipo": "generic",
     },
     {
@@ -78,59 +85,10 @@ CAMARAS = [
         "tipo": "generic",
     },
     {
-        "nome": "CM Coimbra",
-        "url": "https://www.cm-coimbra.pt/areas/cultura-e-desporto/agenda-cultural",
-        "concelho": "Coimbra",
-        "lat": 40.2109, "lon": -8.4377,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Aveiro",
-        "url": "https://www.cm-aveiro.pt/municipio/agenda",
-        "concelho": "Aveiro",
-        "lat": 40.6405, "lon": -8.6538,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Faro",
-        "url": "https://www.cm-faro.pt/pt/agenda.aspx",
-        "concelho": "Faro",
-        "lat": 37.0194, "lon": -7.9304,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Viseu",
-        "url": "https://www.cm-viseu.pt/pt/agenda/",
-        "concelho": "Viseu",
-        "lat": 40.6610, "lon": -7.9097,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Leiria",
-        "url": "https://www.cm-leiria.pt/pages/1025",
-        "concelho": "Leiria",
-        "lat": 39.7437, "lon": -8.8070,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Setúbal",
-        "url": "https://www.mun-setubal.pt/agenda/",
-        "concelho": "Setúbal",
-        "lat": 38.5244, "lon": -8.8882,
-        "tipo": "generic",
-    },
-    {
         "nome": "CM Viana do Castelo",
         "url": "https://www.cm-viana-castelo.pt/agenda/",
         "concelho": "Viana do Castelo",
         "lat": 41.6936, "lon": -8.8319,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Évora",
-        "url": "https://www.cm-evora.pt/agenda/",
-        "concelho": "Évora",
-        "lat": 38.5667, "lon": -7.9000,
         "tipo": "generic",
     },
     {
@@ -169,24 +127,10 @@ CAMARAS = [
         "tipo": "generic",
     },
     {
-        "nome": "CM Beja",
-        "url": "https://www.cm-beja.pt/viewagenda.do1",
-        "concelho": "Beja",
-        "lat": 38.0150, "lon": -7.8653,
-        "tipo": "generic",
-    },
-    {
         "nome": "CM Portalegre",
         "url": "https://www.cm-portalegre.pt/agenda",
         "concelho": "Portalegre",
         "lat": 39.2967, "lon": -7.4317,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Funchal",
-        "url": "https://www.cm-funchal.pt/pt/agenda",
-        "concelho": "Funchal",
-        "lat": 32.6669, "lon": -16.9241,
         "tipo": "generic",
     },
 ]
@@ -337,16 +281,16 @@ def scrape_agendalx() -> list:
     if not soup:
         return events
 
-    cards = soup.select("article, .event-card, .event-item, [class*='event']")
+    cards = soup.select("article.card")
     if not cards:
-        # Fallback: procurar links com datas
-        cards = soup.select("a[href*='/event']")
+        cards = soup.select("article")
 
-    for card in cards[:30]:
+    now = datetime.now()
+    for card in cards[:40]:
         try:
-            title_el = card.select_one("h2, h3, h4, .title, [class*='title']")
+            title_el = card.select_one("h2.card__title")
             if not title_el:
-                title_el = card if card.name == "a" else card.select_one("a")
+                title_el = card.select_one("h2, h3")
             if not title_el:
                 continue
 
@@ -354,16 +298,34 @@ def scrape_agendalx() -> list:
             if not title or len(title) < 3:
                 continue
 
-            # Data
-            date_el = card.select_one("time, .date, [class*='date'], [datetime]")
-            date_text = date_el.get("datetime", "") or date_el.get_text() if date_el else card.get_text()
-            data = extract_date_from_text(str(date_text))
+            # Data — signpost__date contém "10 março 2026"
+            date_el = card.select_one(".signpost__date")
+            if not date_el:
+                date_el = card.select_one("[class*='date'], time")
+            date_text = date_el.get_text(strip=True) if date_el else ""
+            data = extract_date_from_text(date_text)
             if not data:
                 continue
 
-            # Local
-            loc_el = card.select_one(".location, .venue, [class*='location'], [class*='venue']")
+            # Validar intervalo de datas
+            try:
+                event_date = datetime.strptime(data, "%Y-%m-%d")
+                if event_date < now - timedelta(days=1):
+                    continue
+                if event_date > now + timedelta(days=90):
+                    continue
+            except ValueError:
+                continue
+
+            # Local — signpost__venue contém nome do espaço
+            loc_el = card.select_one(".signpost__venue")
+            if not loc_el:
+                loc_el = card.select_one("[class*='venue'], [class*='location']")
             local = loc_el.get_text(strip=True) if loc_el else "Lisboa"
+
+            # Categoria — span.subject contém "música", "teatro", etc.
+            cat_el = card.select_one("span.subject")
+            categoria = cat_el.get_text(strip=True).capitalize() if cat_el else ""
 
             hora = extract_time_from_text(card.get_text())
 
@@ -374,12 +336,194 @@ def scrape_agendalx() -> list:
                 "local": local,
                 "lat": 38.7223,
                 "lon": -9.1393,
-                "fonte": "AgendaLX",
+                "descricao_fonte": "AgendaLX",
+                "categoria_hint": categoria,
             })
         except Exception as e:
             print(f"  ⚠️ Erro AgendaLX card: {e}")
 
     print(f"  ✅ AgendaLX: {len(events)} eventos")
+    return events
+
+
+def scrape_faro() -> list:
+    """Scrape da agenda da CM Faro."""
+    events = []
+    print("  📡 A scrapejar CM Faro...")
+
+    soup = fetch_page("https://www.cm-faro.pt/pt/agenda.aspx")
+    if not soup:
+        return events
+
+    now = datetime.now()
+    items = soup.select(".list_agenda li.thumb, .list_agenda .description")
+    # Faro uses paired li.thumb + li.description inside .list_agenda ul
+    agenda_items = soup.select(".list_agenda > ul")
+    if not agenda_items:
+        agenda_items = soup.select(".list_agenda")
+
+    for container in agenda_items:
+        try:
+            title_el = container.select_one("p.title a, .title a, h3 a, h2 a")
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            if not title or len(title) < 3:
+                continue
+
+            text = container.get_text(separator=" ", strip=True)
+            data = extract_date_from_text(text)
+            if not data:
+                continue
+
+            try:
+                event_date = datetime.strptime(data, "%Y-%m-%d")
+                if event_date < now - timedelta(days=1) or event_date > now + timedelta(days=90):
+                    continue
+            except ValueError:
+                continue
+
+            hora = extract_time_from_text(text)
+
+            loc_el = container.select_one(".local, [class*='local']")
+            local = loc_el.get_text(strip=True) if loc_el else "Faro"
+            # Extract venue from text patterns like "Local: ..."
+            if local == "Faro":
+                loc_match = re.search(r"(?:Local|Onde)[:\s]+([^\n|]+)", text)
+                if loc_match:
+                    local = loc_match.group(1).strip()[:100]
+
+            events.append({
+                "nome": title[:200],
+                "data": data,
+                "hora": hora,
+                "local": local,
+                "lat": 37.0194,
+                "lon": -7.9304,
+                "descricao_fonte": "CM Faro",
+            })
+        except Exception as e:
+            print(f"  ⚠️ Erro CM Faro: {e}")
+
+    print(f"  ✅ CM Faro: {len(events)} eventos")
+    return events
+
+
+def scrape_evora() -> list:
+    """Scrape da agenda da CM Évora."""
+    events = []
+    print("  📡 A scrapejar CM Évora...")
+
+    soup = fetch_page("https://www.cm-evora.pt/municipe/agenda-e-noticias/agenda/lista-de-eventos/")
+    if not soup:
+        return events
+
+    now = datetime.now()
+    cards = soup.select(".event-001.small-12")
+
+    for card in cards[:30]:
+        try:
+            title_el = card.select_one("h2, h3, .event-001-inner-content a")
+            if not title_el:
+                continue
+            title = title_el.get_text(strip=True)
+            if not title or len(title) < 3:
+                continue
+
+            date_el = card.select_one(".event-001-inner-date-inner")
+            date_text = date_el.get_text(strip=True) if date_el else ""
+            data = extract_date_from_text(date_text)
+            if not data:
+                continue
+
+            try:
+                event_date = datetime.strptime(data, "%Y-%m-%d")
+                if event_date < now - timedelta(days=1) or event_date > now + timedelta(days=90):
+                    continue
+            except ValueError:
+                continue
+
+            hora = extract_time_from_text(card.get_text())
+
+            events.append({
+                "nome": title[:200],
+                "data": data,
+                "hora": hora,
+                "local": "Évora",
+                "lat": 38.5667,
+                "lon": -7.9000,
+                "descricao_fonte": "CM Évora",
+            })
+        except Exception as e:
+            print(f"  ⚠️ Erro CM Évora: {e}")
+
+    print(f"  ✅ CM Évora: {len(events)} eventos")
+    return events
+
+
+def extract_jsonld_events(soup: BeautifulSoup, camara: dict) -> list:
+    """Tenta extrair eventos de JSON-LD Schema.org."""
+    events = []
+    now = datetime.now()
+    scripts = soup.find_all("script", type="application/ld+json")
+
+    for script in scripts:
+        try:
+            data = json.loads(script.string)
+            items = []
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                if data.get("@type") == "Event":
+                    items = [data]
+                elif data.get("@type") == "ItemList":
+                    for el in data.get("itemListElement", []):
+                        item = el.get("item", el)
+                        if item.get("@type") == "Event":
+                            items.append(item)
+                elif "@graph" in data:
+                    items = [i for i in data["@graph"] if i.get("@type") == "Event"]
+
+            for item in items:
+                if item.get("@type") != "Event":
+                    continue
+                nome = item.get("name", "").strip()
+                if not nome or len(nome) < 3:
+                    continue
+
+                start = item.get("startDate", "")
+                data_str = extract_date_from_text(start) or start[:10]
+                if not data_str or len(data_str) != 10:
+                    continue
+
+                try:
+                    event_date = datetime.strptime(data_str, "%Y-%m-%d")
+                    if event_date < now - timedelta(days=1) or event_date > now + timedelta(days=90):
+                        continue
+                except ValueError:
+                    continue
+
+                hora = extract_time_from_text(start)
+                loc = item.get("location", {})
+                local = ""
+                if isinstance(loc, dict):
+                    local = loc.get("name", "") or loc.get("address", "")
+                    if isinstance(local, dict):
+                        local = local.get("streetAddress", camara["concelho"])
+                local = local or camara["concelho"]
+
+                events.append({
+                    "nome": nome[:200],
+                    "data": data_str,
+                    "hora": hora,
+                    "local": str(local)[:200],
+                    "lat": camara["lat"],
+                    "lon": camara["lon"],
+                    "descricao_fonte": camara["nome"],
+                })
+        except (json.JSONDecodeError, TypeError):
+            continue
+
     return events
 
 
@@ -394,18 +538,26 @@ def scrape_generic_agenda(camara: dict) -> list:
     if not soup:
         return events
 
-    # Estratégia: procurar blocos com datas e títulos
-    # 1. Procurar elementos comuns de agenda/eventos
+    # Estratégia 1: JSON-LD Schema.org
+    jsonld_events = extract_jsonld_events(soup, camara)
+    if jsonld_events:
+        print(f"  ✅ {nome}: {len(jsonld_events)} eventos (JSON-LD)")
+        return jsonld_events
+
+    # Estratégia 2: CSS selectors para blocos de eventos
     selectors = [
         "article", ".event", ".evento", ".agenda-item",
-        "[class*='event']", "[class*='evento']", "[class*='agenda']",
-        ".card", ".item", "li.item",
+        "[class*='event']", "[class*='evento']",
+        ".card", "li.item",
     ]
 
     cards = []
     for sel in selectors:
-        cards = soup.select(sel)
-        if len(cards) >= 2:
+        found = soup.select(sel)
+        # Filtrar body e elementos demasiado genéricos
+        found = [c for c in found if c.name not in ("body", "html", "head", "nav", "header", "footer")]
+        if len(found) >= 2:
+            cards = found
             break
 
     if not cards:
@@ -413,7 +565,7 @@ def scrape_generic_agenda(camara: dict) -> list:
         all_headings = soup.select("h2, h3, h4")
         for h in all_headings:
             parent = h.parent
-            if parent:
+            if parent and parent.name not in ("body", "html", "nav", "header", "footer"):
                 text = parent.get_text()
                 if extract_date_from_text(text):
                     cards.append(parent)
@@ -436,7 +588,7 @@ def scrape_generic_agenda(camara: dict) -> list:
                 continue
 
             # Filtrar falsos positivos (menus, navigation)
-            skip_words = ["menu", "login", "registar", "pesquisar", "cookies", "privacy"]
+            skip_words = ["menu", "login", "registar", "pesquisar", "cookies", "privacy", "newsletter", "subscrever"]
             if any(w in title.lower() for w in skip_words):
                 continue
 
@@ -468,7 +620,7 @@ def scrape_generic_agenda(camara: dict) -> list:
                 "local": local,
                 "lat": camara["lat"],
                 "lon": camara["lon"],
-                "fonte": nome,
+                "descricao_fonte": nome,
             })
         except Exception as e:
             print(f"  ⚠️ Erro {nome} card: {e}")
@@ -485,39 +637,48 @@ def upsert_eventos(events: list):
 
     for ev in events:
         try:
-            event_hash = make_event_id(ev["nome"], ev["data"], ev["local"])
-
             # Geocode se necessário
             lat, lon = ev["lat"], ev["lon"]
-            if ev["local"] and ev["local"] != ev.get("fonte", ""):
+            if ev["local"] and ev["local"] != ev.get("descricao_fonte", ""):
                 lat, lon = geocode_local(ev["local"], ev["lat"], ev["lon"])
 
-            # Classificar
-            tipo = classify_event_groq(ev["nome"])
+            # Classificar — usar hint de categoria se disponível
+            categoria_hint = ev.get("categoria_hint", "")
+            if categoria_hint:
+                tipo = categoria_hint
+            else:
+                tipo = classify_event_groq(ev["nome"])
 
             record = {
                 "nome": ev["nome"],
+                "tipo": tipo,
+                "categoria": "Cultura",
+                "escalao": "",
+                "equipa_casa": "",
+                "equipa_fora": "",
                 "data": ev["data"],
                 "hora": ev["hora"],
                 "local": ev["local"],
                 "latitude": lat,
                 "longitude": lon,
-                "tipo": tipo,
+                "preco": "",
+                "descricao": f"Evento publicado por {ev.get('descricao_fonte', 'Câmara Municipal')}",
                 "status": "aprovado",
-                "fonte": ev.get("fonte", "Câmara Municipal"),
-                "descricao": f"Evento publicado por {ev.get('fonte', 'Câmara Municipal')}",
-                "url_fonte": "",
-                "event_hash": event_hash,
+                "url_jogo": "",
+                "url_equipa_casa": "",
+                "url_equipa_fora": "",
+                "url_classificacao": "",
+                "url_maps": "",
             }
 
-            # Upsert com deduplicação por hash
-            existing = supabase.table("eventos").select("id").eq("nome", ev["nome"]).eq("data", ev["data"]).execute()
-            if existing.data and len(existing.data) > 0:
-                skipped += 1
-                continue
+            result = supabase.table("eventos").upsert(
+                record, on_conflict="nome,data"
+            ).execute()
 
-            supabase.table("eventos").insert(record).execute()
-            inserted += 1
+            if result.data:
+                inserted += 1
+            else:
+                skipped += 1
 
         except Exception as e:
             errors += 1
@@ -541,6 +702,10 @@ def main():
         try:
             if camara["tipo"] == "agendalx":
                 events = scrape_agendalx()
+            elif camara["tipo"] == "faro":
+                events = scrape_faro()
+            elif camara["tipo"] == "evora":
+                events = scrape_evora()
             else:
                 events = scrape_generic_agenda(camara)
             all_events.extend(events)

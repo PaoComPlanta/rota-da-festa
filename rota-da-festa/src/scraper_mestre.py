@@ -633,7 +633,16 @@ async def load_page(page, url: str, accept_cookies: bool = False,
 
             title = await page.title()
             if "cloudflare" in title.lower() or "just a moment" in title.lower():
-                raise RuntimeError("Cloudflare challenge detectado")
+                # Esperar pela resolução automática do JS challenge
+                try:
+                    await page.wait_for_function(
+                        "() => !document.title.toLowerCase().includes('just a moment')"
+                        " && !document.title.toLowerCase().includes('cloudflare')",
+                        timeout=15000,
+                    )
+                    await page.wait_for_timeout(2000)
+                except Exception:
+                    raise RuntimeError("Cloudflare challenge detectado")
 
             return await page.content()
 
@@ -664,7 +673,15 @@ async def load_page_fast(page, url: str, scroll: bool = False) -> str:
 
         title = await page.title()
         if "cloudflare" in title.lower() or "just a moment" in title.lower():
-            return ""
+            try:
+                await page.wait_for_function(
+                    "() => !document.title.toLowerCase().includes('just a moment')"
+                    " && !document.title.toLowerCase().includes('cloudflare')",
+                    timeout=10000,
+                )
+                await page.wait_for_timeout(1000)
+            except Exception:
+                return ""
         return await page.content()
     except Exception as e:
         print(f"    ⚠️ Fast load falhou ({url}): {e}")
@@ -843,15 +860,33 @@ async def scrape_zerozero():
     }
 
     async with async_playwright() as p:
-        browser = await p.chromium.launch(headless=True)
+        browser = await p.chromium.launch(
+            headless=True,
+            args=[
+                "--disable-blink-features=AutomationControlled",
+                "--no-sandbox",
+                "--disable-dev-shm-usage",
+            ],
+        )
         context = await browser.new_context(
             user_agent=(
                 "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
                 "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/121.0.0.0 Safari/537.36"
+                "Chrome/131.0.0.0 Safari/537.36"
             ),
             viewport={"width": 1280, "height": 720},
+            locale="pt-PT",
+            timezone_id="Europe/Lisbon",
         )
+        # Stealth: mascarar propriedades de automação detectadas pelo Cloudflare
+        await context.add_init_script("""
+            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
+            Object.defineProperty(navigator, 'languages', { get: () => ['pt-PT', 'pt', 'en-US', 'en'] });
+            Object.defineProperty(navigator, 'plugins', {
+                get: () => [1, 2, 3, 4, 5],
+            });
+            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
+        """)
         page = await context.new_page()
 
         try:
