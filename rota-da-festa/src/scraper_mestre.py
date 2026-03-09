@@ -7,6 +7,7 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from geopy.geocoders import Nominatim
+import requests as std_requests
 from curl_cffi import requests as cf_requests
 
 # Carregar envs
@@ -24,6 +25,11 @@ if not SUPABASE_URL or not SUPABASE_KEY:
 
 supabase: Client = create_client(SUPABASE_URL, SUPABASE_KEY)
 geolocator = Nominatim(user_agent="rota_da_festa_bot_v5")
+
+# FlareSolverr — bypass CF em IPs datacenter (GitHub Actions)
+FLARESOLVERR_URL = os.environ.get("FLARESOLVERR_URL", "http://localhost:8191/v1")
+_fs_mode = False
+_fs_session_id = None
 
 # ========================================================================
 # Cache de estádios — profissionais + semi-profissionais + distritais
@@ -597,40 +603,171 @@ def _is_cf_challenge(html: str) -> bool:
     return any(cf in title for cf in CF_CHALLENGE_STRINGS)
 
 
+# ========================================================================
+# FlareSolverr helpers — undetected Chrome para bypass CF em Actions
+# ========================================================================
+
+def _check_flaresolverr() -> bool:
+    """Verifica se o FlareSolverr está acessível."""
+    try:
+        r = std_requests.post(FLARESOLVERR_URL,
+                              json={"cmd": "sessions.list"}, timeout=5)
+        return r.status_code == 200
+    except Exception:
+        return False
+
+
+def _fs_solve(url: str, session_id: str = None) -> tuple:
+    """Busca URL via FlareSolverr. Retorna (html, cookies_dict, user_agent)."""
+    payload = {"cmd": "request.get", "url": url, "maxTimeout": 60000}
+    if session_id:
+        payload["session"] = session_id
+    try:
+        r = std_requests.post(FLARESOLVERR_URL, json=payload, timeout=90)
+        data = r.json()
+        if data.get("status") == "ok":
+            sol = data["solution"]
+            html = sol.get("response", "")
+            cookies = {c["name"]: c["value"] for c in sol.get("cookies", [])}
+            ua = sol.get("userAgent", "")
+            return html, cookies, ua
+        print(f"  ⚠️ FlareSolverr: {data.get('message', 'erro desconhecido')}")
+    except Exception as e:
+        print(f"  ⚠️ FlareSolverr erro: {e}")
+    return "", {}, ""
+
+
+def _fs_cleanup():
+    """Destroi sessão FlareSolverr."""
+    global _fs_session_id, _fs_mode
+    if _fs_session_id:
+        try:
+            std_requests.post(FLARESOLVERR_URL, json={
+                "cmd": "sessions.destroy", "session": _fs_session_id
+            }, timeout=5)
+        except Exception:
+            pass
+    _fs_session_id = None
+    _fs_mode = False
+
+
+# ========================================================================
+# Sessão HTTP com bypass Cloudflare (3 estratégias)
+# ========================================================================
+
+_CF_HEADERS = {
+    "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+    "Accept-Encoding": "gzip, deflate, br",
+    "Sec-Fetch-Dest": "document",
+    "Sec-Fetch-Mode": "navigate",
+    "Sec-Fetch-Site": "none",
+    "Sec-Fetch-User": "?1",
+    "Upgrade-Insecure-Requests": "1",
+}
+
+
 def create_cf_session() -> cf_requests.Session:
-    """Cria uma sessão curl_cffi com TLS fingerprint Chrome para bypass CF.
-    
-    Tenta vários alvos de impersonação para compatibilidade com
-    diferentes versões de curl_cffi (Actions pode ter versão mais antiga).
+    """Cria sessão HTTP com bypass Cloudflare.
+
+    Estratégia 1: curl_cffi direto (funciona localmente / IPs limpos)
+    Estratégia 2: cookies FlareSolverr + curl_cffi (rápido em datacenter)
+    Estratégia 3: FlareSolverr sessão (mais lento, mas fiável)
     """
+    global _fs_mode, _fs_session_id
+
+    # Diagnóstico
+    try:
+        import curl_cffi as _cf
+        _n = len(cf_requests.BrowserType.__members__)
+        print(f"ℹ️  curl_cffi v{_cf.__version__}, {_n} targets disponíveis")
+    except Exception:
+        pass
+
+    # --- Estratégia 1: curl_cffi direto ---
     for target in ["chrome", "chrome120", "chrome110", "chrome107"]:
         try:
             session = cf_requests.Session(impersonate=target)
-            session.headers.update({
-                "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-                "Accept-Encoding": "gzip, deflate, br",
-                "Sec-Fetch-Dest": "document",
-                "Sec-Fetch-Mode": "navigate",
-                "Sec-Fetch-Site": "none",
-                "Sec-Fetch-User": "?1",
-                "Upgrade-Insecure-Requests": "1",
-            })
-            # Quick validation: try a lightweight HEAD request
+            session.headers.update(_CF_HEADERS)
             resp = session.head("https://www.zerozero.pt", timeout=10)
             if resp.status_code != 403:
-                print(f"🔧 curl_cffi: impersonate={target}")
+                print(f"🔧 Estratégia 1: curl_cffi direto (impersonate={target})")
                 return session
             session.close()
         except Exception:
             continue
-    # Último recurso: sem impersonação específica
-    print("⚠️ curl_cffi: nenhum target funcionou, a usar 'chrome'")
-    return cf_requests.Session(impersonate="chrome")
+
+    print("⚠️ curl_cffi bloqueado (IP datacenter?) — a tentar FlareSolverr...")
+
+    if not _check_flaresolverr():
+        print("⚠️ FlareSolverr não disponível — ZeroZero poderá falhar")
+        session = cf_requests.Session(impersonate="chrome")
+        session.headers.update(_CF_HEADERS)
+        return session
+
+    # --- Estratégia 2: resolver CF, extrair cookies, usar com curl_cffi ---
+    print("🔓 Estratégia 2: cookies FlareSolverr + curl_cffi...")
+    html, cookies, ua = _fs_solve("https://www.zerozero.pt/")
+    if cookies and html and not _is_cf_challenge(html):
+        session = cf_requests.Session(impersonate="chrome")
+        session.headers.update(_CF_HEADERS)
+        if ua:
+            session.headers["User-Agent"] = ua
+        for name, value in cookies.items():
+            session.cookies.set(name, value, domain=".zerozero.pt")
+        try:
+            resp = session.get("https://www.zerozero.pt/agenda", timeout=15)
+            if resp.status_code == 200 and not _is_cf_challenge(resp.text):
+                print(f"✅ Estratégia 2 OK: curl_cffi + {len(cookies)} cookies FlareSolverr")
+                return session
+        except Exception:
+            pass
+        print("⚠️ Cookies não funcionaram com curl_cffi, a tentar modo direto...")
+        session.close()
+
+    # --- Estratégia 3: FlareSolverr sessão (cada pedido pelo browser) ---
+    print("🔓 Estratégia 3: FlareSolverr modo sessão...")
+    try:
+        r = std_requests.post(FLARESOLVERR_URL,
+                              json={"cmd": "sessions.create"}, timeout=15)
+        data = r.json()
+        sid = data.get("session", "")
+        if sid:
+            _fs_session_id = sid
+            warmup, _, _ = _fs_solve("https://www.zerozero.pt/", session_id=sid)
+            if warmup and not _is_cf_challenge(warmup):
+                _fs_mode = True
+                print(f"✅ Estratégia 3 OK: FlareSolverr sessão ({sid[:12]}...)")
+                session = cf_requests.Session(impersonate="chrome")
+                session.headers.update(_CF_HEADERS)
+                return session
+            print("⚠️ FlareSolverr sessão não resolveu CF")
+            _fs_cleanup()
+    except Exception as e:
+        print(f"⚠️ FlareSolverr sessão erro: {e}")
+        _fs_cleanup()
+
+    # --- Tudo falhou ---
+    print("❌ Nenhuma estratégia CF funcionou — ZeroZero provavelmente indisponível")
+    session = cf_requests.Session(impersonate="chrome")
+    session.headers.update(_CF_HEADERS)
+    return session
 
 
 def fetch_html(session: cf_requests.Session, url: str, retries: int = 3) -> str:
-    """Busca HTML de uma URL com retry e detecção de CF challenge."""
+    """Busca HTML com retry, detecção CF e fallback FlareSolverr."""
+    # Modo FlareSolverr: bypass curl_cffi, usar browser direto
+    if _fs_mode:
+        for attempt in range(2):
+            html, _, _ = _fs_solve(url, session_id=_fs_session_id)
+            if html and not _is_cf_challenge(html):
+                return html
+            if attempt == 0:
+                time.sleep(3)
+        print(f"  ❌ FlareSolverr falhou para {url}")
+        return ""
+
+    # Modo normal: curl_cffi (com ou sem cookies)
     for attempt in range(retries):
         try:
             resp = session.get(url, timeout=30)
@@ -930,7 +1067,7 @@ def scrape_zerozero():
                             if full != comp_url and full not in sub_comp_urls:
                                 sub_comp_urls.append(full)
 
-                    sub_comp_urls = sub_comp_urls[:20]
+                    sub_comp_urls = sub_comp_urls[:5 if _fs_mode else 20]
                     if sub_comp_urls:
                         print(f"     📂 {len(sub_comp_urls)} sub-competições encontradas")
 
@@ -951,7 +1088,7 @@ def scrape_zerozero():
                             continue
 
                 # Limitar edições por AF (muitas séries/escalões)
-                edition_urls = edition_urls[:30]
+                edition_urls = edition_urls[:10 if _fs_mode else 30]
                 print(f"     📖 {len(edition_urls)} edições encontradas")
 
                 # 4. Tentar extrair jogos directamente da página (alguns mostram próximos jogos)
@@ -1112,6 +1249,7 @@ def scrape_zerozero():
         return [], set()
     finally:
         session.close()
+        _fs_cleanup()
 
 
 def verificar_adiamentos(eventos_novos: list, datas_ok: set):

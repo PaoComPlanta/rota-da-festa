@@ -4,4 +4,3 @@ groq
 geopy
 python-dotenv
 curl_cffi
-playwright
