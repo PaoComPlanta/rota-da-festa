@@ -598,19 +598,35 @@ def _is_cf_challenge(html: str) -> bool:
 
 
 def create_cf_session() -> cf_requests.Session:
-    """Cria uma sessão curl_cffi com TLS fingerprint Chrome para bypass CF."""
-    session = cf_requests.Session(impersonate="chrome131")
-    session.headers.update({
-        "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
-        "Accept-Encoding": "gzip, deflate, br",
-        "Sec-Fetch-Dest": "document",
-        "Sec-Fetch-Mode": "navigate",
-        "Sec-Fetch-Site": "none",
-        "Sec-Fetch-User": "?1",
-        "Upgrade-Insecure-Requests": "1",
-    })
-    return session
+    """Cria uma sessão curl_cffi com TLS fingerprint Chrome para bypass CF.
+    
+    Tenta vários alvos de impersonação para compatibilidade com
+    diferentes versões de curl_cffi (Actions pode ter versão mais antiga).
+    """
+    for target in ["chrome", "chrome120", "chrome110", "chrome107"]:
+        try:
+            session = cf_requests.Session(impersonate=target)
+            session.headers.update({
+                "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+                "Accept-Encoding": "gzip, deflate, br",
+                "Sec-Fetch-Dest": "document",
+                "Sec-Fetch-Mode": "navigate",
+                "Sec-Fetch-Site": "none",
+                "Sec-Fetch-User": "?1",
+                "Upgrade-Insecure-Requests": "1",
+            })
+            # Quick validation: try a lightweight HEAD request
+            resp = session.head("https://www.zerozero.pt", timeout=10)
+            if resp.status_code != 403:
+                print(f"🔧 curl_cffi: impersonate={target}")
+                return session
+            session.close()
+        except Exception:
+            continue
+    # Último recurso: sem impersonação específica
+    print("⚠️ curl_cffi: nenhum target funcionou, a usar 'chrome'")
+    return cf_requests.Session(impersonate="chrome")
 
 
 def fetch_html(session: cf_requests.Session, url: str, retries: int = 3) -> str:
@@ -765,7 +781,7 @@ def extract_games_from_page(html: str, comp_name: str = "") -> list:
         if not casa or not fora:
             continue
 
-        hora = "A definir"
+        hora = None
         ctx_text = parent.get_text() if parent else ""
         time_match = re.search(r'\b(\d{2}:\d{2})\b', ctx_text)
         if time_match:

@@ -329,7 +329,7 @@ def scrape_eventbrite(session: cf_requests.Session, region_slug: str, region_nam
                         "equipa_casa": "",
                         "equipa_fora": "",
                         "data": data_str,
-                        "hora": hora or "A definir",
+                        "hora": hora or None,
                         "local": local_full,
                         "latitude": float(lat) if lat else None,
                         "longitude": float(lon) if lon else None,
@@ -396,7 +396,7 @@ def scrape_eventbrite(session: cf_requests.Session, region_slug: str, region_nam
                         "equipa_casa": "",
                         "equipa_fora": "",
                         "data": data_str,
-                        "hora": hora or "A definir",
+                        "hora": hora or None,
                         "local": local_clean,
                         "latitude": float(lat) if lat else None,
                         "longitude": float(lon) if lon else None,
@@ -441,7 +441,7 @@ def main():
 
     todos_eventos = []
 
-    session = cf_requests.Session(impersonate="chrome131")
+    session = cf_requests.Session(impersonate="chrome")
     session.headers.update({
         "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
         "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
