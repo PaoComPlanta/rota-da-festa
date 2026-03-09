@@ -290,11 +290,15 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
                         price = ""
                         currency = "EUR"
 
-                    if price and float(price) == 0:
-                        preco = "Grátis"
-                    elif price:
-                        preco = f"{price}€"
-                    else:
+                    try:
+                        price_val = float(price) if price else None
+                        if price_val is not None and price_val == 0:
+                            preco = "Grátis"
+                        elif price_val is not None:
+                            preco = f"{price_val}€"
+                        else:
+                            preco = "Variável"
+                    except (ValueError, TypeError):
                         preco = "Variável"
 
                     # URL
@@ -310,6 +314,9 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
                         "nome": nome,
                         "tipo": tipo,
                         "categoria": tipo,
+                        "escalao": "",
+                        "equipa_casa": "",
+                        "equipa_fora": "",
                         "data": data_str,
                         "hora": hora or "A definir",
                         "local": local_full,
@@ -318,6 +325,10 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
                         "preco": preco,
                         "descricao": f"📍 {local_full} | {descricao}" if descricao else f"📍 {local_full}",
                         "url_jogo": url_evento,
+                        "url_equipa_casa": "",
+                        "url_equipa_fora": "",
+                        "url_classificacao": "",
+                        "url_maps": f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "",
                         "status": "aprovado",
                     }
 
@@ -346,6 +357,16 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
                     if not data_str:
                         continue
 
+                    # Filtrar: só eventos nos próximos 30 dias
+                    try:
+                        event_date = datetime.strptime(data_str, "%Y-%m-%d")
+                        if event_date < datetime.now() - timedelta(days=1):
+                            continue
+                        if event_date > datetime.now() + timedelta(days=30):
+                            continue
+                    except ValueError:
+                        continue
+
                     # Local do card
                     venue_el = card.select_one("p[data-testid='event-card-venue'], .event-card__clamp-line--one")
                     local_text = venue_el.get_text(strip=True) if venue_el else region_name
@@ -360,6 +381,9 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
                         "nome": nome,
                         "tipo": tipo,
                         "categoria": tipo,
+                        "escalao": "",
+                        "equipa_casa": "",
+                        "equipa_fora": "",
                         "data": data_str,
                         "hora": hora or "A definir",
                         "local": local_clean,
@@ -368,6 +392,10 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
                         "preco": "Variável",
                         "descricao": f"📍 {local_clean}",
                         "url_jogo": url_evento,
+                        "url_equipa_casa": "",
+                        "url_equipa_fora": "",
+                        "url_classificacao": "",
+                        "url_maps": f"https://www.google.com/maps/search/?api=1&query={lat},{lon}" if lat and lon else "",
                         "status": "aprovado",
                     }
                     eventos.append(evento)

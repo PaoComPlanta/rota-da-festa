@@ -373,7 +373,7 @@ def parse_games_from_html(html: str) -> list:
             ids_vistos.add(gid)
 
             game_text = game_link.get_text(strip=True)
-            vs_match = re.match(r'(.+?)\s+(?:vs|\d+-\d+)\s+(.+)', game_text)
+            vs_match = re.match(r'(.+?)\s+(?:vs|x|\d+\s*-\s*\d+|-)\s+(.+)', game_text, re.IGNORECASE)
             if not vs_match:
                 # Tentar extrair equipas de outra forma se regex falhar
                 continue
@@ -606,7 +606,7 @@ async def load_page(page, url: str, accept_cookies: bool = False,
             try:
                 # Esperar por qualquer um dos layouts comuns
                 await page.wait_for_selector(
-                    "li.game, table.agenda_list", timeout=15000
+                    "li.game, table.agenda_list, table.zztable", timeout=15000
                 )
             except Exception:
                 pass
@@ -740,19 +740,51 @@ def extract_games_from_page(html: str, comp_name: str = "") -> list:
         # Equipas: links /equipa/ com texto não-vazio (ignorar links de logos)
         team_links = parent.select("a[href*='/equipa/']") if parent else []
         named_teams = [t.get_text(strip=True) for t in team_links if t.get_text(strip=True)]
-        # Deduplicate mantendo ordem
         unique_teams = list(dict.fromkeys(named_teams))
 
         casa, fora = None, None
         if len(unique_teams) >= 2:
             casa = unique_teams[0]
             fora = unique_teams[1]
-        else:
+
+        # Fallback 1: texto do link do jogo (vs, traço, resultado)
+        if not casa or not fora:
             text = match_link.get_text(strip=True)
-            vs = re.match(r'(.+?)\s+(?:vs|x|\d+-\d+)\s+(.+)', text, re.IGNORECASE)
+            vs = re.match(r'(.+?)\s+(?:vs|x|\d+\s*-\s*\d+|-)\s+(.+)', text, re.IGNORECASE)
             if vs:
-                casa = vs.group(1).strip()
-                fora = vs.group(2).strip()
+                c, f = vs.group(1).strip(), vs.group(2).strip()
+                # Ignorar resultados numéricos (ex: "2 - 1")
+                if len(c) >= 2 and len(f) >= 2 and not c.isdigit() and not f.isdigit():
+                    casa, fora = c, f
+
+        # Fallback 2: extrair de <td> adjacentes em tabelas (formação distrital)
+        if not casa or not fora:
+            tr = match_link.find_parent("tr")
+            if tr:
+                tds = tr.find_all("td")
+                link_td_idx = None
+                for i, td in enumerate(tds):
+                    if td.find("a", href=re.compile(r'/jogo/')):
+                        link_td_idx = i
+                        break
+                if link_td_idx is not None:
+                    before = []
+                    after = []
+                    for i, td in enumerate(tds):
+                        txt = td.get_text(strip=True)
+                        if not txt or len(txt) < 2:
+                            continue
+                        if re.match(r'^\d{1,2}[:.h]\d{2}$', txt):
+                            continue
+                        if re.match(r'^\d{1,2}\s*-\s*\d{1,2}$', txt):
+                            continue
+                        if i < link_td_idx:
+                            before.append(txt)
+                        elif i > link_td_idx:
+                            after.append(txt)
+                    if before and after:
+                        casa = before[-1]
+                        fora = after[0]
 
         if not casa or not fora:
             continue
@@ -861,6 +893,16 @@ async def scrape_zerozero():
             af_page = await context.new_page()
             af_total = 0
 
+            # Calcular época atual para filtrar edições relevantes
+            _now = datetime.now()
+            _season_start = _now.year if _now.month >= 8 else _now.year - 1
+            _season_end = _season_start + 1
+            season_tags = [
+                f"{_season_start}-{str(_season_end)[-2:]}",
+                f"{_season_start}-{_season_end}",
+                str(_season_end),
+            ]
+
             for comp_name, comp_url in PT_COMPETITION_URLS.items():
                 try:
                     print(f"  📋 {comp_name}...")
@@ -876,7 +918,7 @@ async def scrape_zerozero():
                     edition_urls = []
                     for link in comp_soup.select("a[href*='/edicao/']"):
                         href = link.get("href", "")
-                        if href and ("2025-26" in href or "2025-2026" in href or "2026" in href):
+                        if href and any(tag in href for tag in season_tags):
                             full = href if href.startswith("http") else base + href
                             if full not in edition_urls:
                                 edition_urls.append(full)
@@ -904,7 +946,7 @@ async def scrape_zerozero():
                                 sc_soup = BeautifulSoup(sc_html, "html.parser")
                                 for link in sc_soup.select("a[href*='/edicao/']"):
                                     href = link.get("href", "")
-                                    if href and ("2025-26" in href or "2025-2026" in href or "2026" in href):
+                                    if href and any(tag in href for tag in season_tags):
                                         full = href if href.startswith("http") else base + href
                                         if full not in edition_urls:
                                             edition_urls.append(full)
