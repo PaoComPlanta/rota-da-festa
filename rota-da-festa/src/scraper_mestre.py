@@ -1,5 +1,4 @@
 import os
-import asyncio
 import re
 import time
 import json
@@ -8,7 +7,7 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from geopy.geocoders import Nominatim
-from playwright.async_api import async_playwright
+from curl_cffi import requests as cf_requests
 
 # Carregar envs
 load_dotenv()
@@ -459,16 +458,17 @@ def parse_games_from_html(html: str) -> list:
     return resultados
 
 
-async def scrape_game_details(page, game_url: str) -> dict:
+def scrape_game_details(session: cf_requests.Session, game_url: str) -> dict:
     """Visita a página de um jogo no ZeroZero para extrair URLs de equipas e classificação."""
     result = {"url_equipa_casa": "", "url_equipa_fora": "", "url_classificacao": ""}
     base = "https://www.zerozero.pt"
     
     try:
         full_url = game_url if game_url.startswith("http") else base + game_url
-        await page.goto(full_url, timeout=30000, wait_until="domcontentloaded")
-        await page.wait_for_timeout(1500)
-        html = await page.content()
+        resp = session.get(full_url, timeout=30)
+        if resp.status_code != 200:
+            return result
+        html = resp.text
         soup = BeautifulSoup(html, "html.parser")
 
         # Extrair URLs das equipas a partir do cabeçalho do jogo
@@ -587,121 +587,64 @@ def classificar_evento(comp_text: str, nome_jogo: str = ""):
     return "Futebol", "Variável", escalao
 
 
-async def load_page(page, url: str, accept_cookies: bool = False,
-                    retries: int = 2) -> str:
-    """Carrega uma página com retry e devolve o HTML."""
-    for attempt in range(retries + 1):
+CF_CHALLENGE_STRINGS = ["um momento", "just a moment", "cloudflare", "attention required"]
+
+
+def _is_cf_challenge(html: str) -> bool:
+    """Verifica se o HTML é uma página de challenge Cloudflare."""
+    title_m = re.search(r"<title>(.*?)</title>", html[:3000], re.I)
+    title = (title_m.group(1) if title_m else "").lower()
+    return any(cf in title for cf in CF_CHALLENGE_STRINGS)
+
+
+def create_cf_session() -> cf_requests.Session:
+    """Cria uma sessão curl_cffi com TLS fingerprint Chrome para bypass CF."""
+    session = cf_requests.Session(impersonate="chrome131")
+    session.headers.update({
+        "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    })
+    return session
+
+
+def fetch_html(session: cf_requests.Session, url: str, retries: int = 3) -> str:
+    """Busca HTML de uma URL com retry e detecção de CF challenge."""
+    for attempt in range(retries):
         try:
-            await page.goto(url, timeout=60000, wait_until="domcontentloaded")
-
-            # Cloudflare: verificar e esperar resolução ANTES de interagir
-            title = await page.title()
-            if "cloudflare" in title.lower() or "just a moment" in title.lower():
-                try:
-                    await page.wait_for_function(
-                        "() => !document.title.toLowerCase().includes('just a moment')"
-                        " && !document.title.toLowerCase().includes('cloudflare')",
-                        timeout=15000,
-                    )
-                    await page.wait_for_timeout(2000)
-                except Exception:
-                    raise RuntimeError("Cloudflare challenge detectado")
-
-            # Aceitar cookies (Didomi ou fc-consent) — tentar em todas as cargas
-            for cookie_sel in ["#didomi-notice-agree-button", "button.fc-cta-consent", ".accept-cookies"]:
-                try:
-                    btn = page.locator(cookie_sel)
-                    if await btn.is_visible(timeout=2000):
-                        await btn.click()
-                        await page.wait_for_timeout(1000)
-                        break
-                except Exception:
+            resp = session.get(url, timeout=30)
+            if resp.status_code == 200:
+                html = resp.text
+                if _is_cf_challenge(html):
+                    if attempt < retries - 1:
+                        wait = 3 * (attempt + 1)
+                        print(f"  ⚠️ CF challenge detectado, retry em {wait}s...")
+                        time.sleep(wait)
+                        continue
+                    print(f"  ❌ CF challenge não resolvido para {url}")
+                    return ""
+                return html
+            elif resp.status_code == 403:
+                if attempt < retries - 1:
+                    time.sleep(3 * (attempt + 1))
                     continue
-
-            try:
-                # Esperar por qualquer um dos layouts comuns
-                await page.wait_for_selector(
-                    "li.game, table.agenda_list, table.zztable, a[href*='/edicao/']",
-                    timeout=15000,
-                )
-            except Exception:
-                pass
-
-            await page.wait_for_timeout(1500)
-
-            # Scroll para carregar conteúdo lazy-loaded (divisões inferiores)
-            for _ in range(5):
-                prev_height = await page.evaluate("document.body.scrollHeight")
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(1000)
-                new_height = await page.evaluate("document.body.scrollHeight")
-                if new_height == prev_height:
-                    break
-
-            # Clicar em "ver mais" / "show more" se existir
-            try:
-                more_btn = page.locator("a.ver_mais, a.show_more, button:has-text('mais'), a:has-text('Ver mais')")
-                while await more_btn.first.is_visible(timeout=1000):
-                    await more_btn.first.click()
-                    await page.wait_for_timeout(1500)
-            except Exception:
-                pass
-
-            return await page.content()
-
-        except Exception as e:
-            if attempt < retries:
-                wait = 5 * (attempt + 1)
-                print(f"  ⚠️ Tentativa {attempt + 1} falhou: {e}. Retry em {wait}s...")
-                await asyncio.sleep(wait)
+                print(f"  ❌ HTTP 403 para {url}")
+                return ""
             else:
-                print(f"  ❌ Falha após {retries + 1} tentativas: {e}")
+                print(f"  ⚠️ HTTP {resp.status_code} para {url}")
                 return ""
-    return ""
-
-
-async def load_page_fast(page, url: str, scroll: bool = False) -> str:
-    """Carregamento rápido para Fase 2 — scroll leve opcional, sem retries."""
-    try:
-        await page.goto(url, timeout=30000, wait_until="domcontentloaded")
-        await page.wait_for_timeout(1500)
-
-        # Cloudflare: verificar e esperar resolução primeiro
-        title = await page.title()
-        if "cloudflare" in title.lower() or "just a moment" in title.lower():
-            try:
-                await page.wait_for_function(
-                    "() => !document.title.toLowerCase().includes('just a moment')"
-                    " && !document.title.toLowerCase().includes('cloudflare')",
-                    timeout=10000,
-                )
-                await page.wait_for_timeout(1000)
-            except Exception:
-                return ""
-
-        # Aceitar cookies se presentes
-        for cookie_sel in ["#didomi-notice-agree-button", "button.fc-cta-consent"]:
-            try:
-                btn = page.locator(cookie_sel)
-                if await btn.is_visible(timeout=1000):
-                    await btn.click()
-                    await page.wait_for_timeout(500)
-                    break
-            except Exception:
+        except Exception as e:
+            if attempt < retries - 1:
+                time.sleep(2 * (attempt + 1))
                 continue
-
-        if scroll:
-            for _ in range(3):
-                prev = await page.evaluate("document.body.scrollHeight")
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(800)
-                if await page.evaluate("document.body.scrollHeight") == prev:
-                    break
-
-        return await page.content()
-    except Exception as e:
-        print(f"    ⚠️ Fast load falhou ({url}): {e}")
-        return ""
+            print(f"  ❌ Erro ao buscar {url}: {e}")
+            return ""
+    return ""
 
 
 def limpar_eventos_concluidos():
@@ -841,7 +784,7 @@ def extract_games_from_page(html: str, comp_name: str = "") -> list:
     return games
 
 
-async def scrape_zerozero():
+def scrape_zerozero():
     base_url = "https://www.zerozero.pt/agenda"
     base = "https://www.zerozero.pt"
     print("🌍 A iniciar scraping do ZeroZero...")
@@ -875,316 +818,284 @@ async def scrape_zerozero():
         "feminina": "https://www.zerozero.pt/competition/liga-portuguesa-feminina",
     }
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        context = await browser.new_context(
-            user_agent=(
-                "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
-                "AppleWebKit/537.36 (KHTML, like Gecko) "
-                "Chrome/131.0.0.0 Safari/537.36"
-            ),
-            viewport={"width": 1280, "height": 720},
-            locale="pt-PT",
-            timezone_id="Europe/Lisbon",
-        )
-        # Stealth: mascarar propriedades de automação detectadas pelo Cloudflare
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['pt-PT', 'pt', 'en-US', 'en'] });
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5],
-            });
-            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
-        """)
-        page = await context.new_page()
+    session = create_cf_session()
 
-        try:
-            all_games = []
-            ids_vistos = set()
-            datas_ok = set()
+    try:
+        all_games = []
+        ids_vistos = set()
+        datas_ok = set()
 
-            # Scrape hoje + próximos 6 dias (cobre o fim-de-semana)
-            hoje = datetime.now()
-            datas = [
-                (hoje + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)
-            ]
+        # Scrape hoje + próximos 6 dias (cobre o fim-de-semana)
+        hoje = datetime.now()
+        datas = [
+            (hoje + timedelta(days=i)).strftime("%Y-%m-%d") for i in range(7)
+        ]
 
-            for idx, data_str in enumerate(datas):
-                url = f"{base_url}?date={data_str}"
-                print(f"📅 A processar {data_str}...")
+        for data_str in datas:
+            url = f"{base_url}?date={data_str}"
+            print(f"📅 A processar {data_str}...")
 
-                html = await load_page(page, url, accept_cookies=(idx == 0))
+            html = fetch_html(session, url)
+            if not html:
+                print(f"   ⚠️ Página vazia (sem HTML)")
+                continue
+            datas_ok.add(data_str)
+
+            jogos = parse_games_from_html(html)
+            novos = 0
+            for jogo in jogos:
+                gid = _extract_game_id(jogo["url"])
+                if gid not in ids_vistos:
+                    ids_vistos.add(gid)
+                    all_games.append(jogo)
+                    novos += 1
+
+            # Diagnóstico: se 0 jogos, mostrar o que está na página
+            if not jogos:
+                _soup = BeautifulSoup(html, "html.parser")
+                _title = _soup.title.string if _soup.title else "sem título"
+                _tables = len(_soup.select("table.agenda_list"))
+                _trs = len(_soup.select("table.agenda_list tr"))
+                _jlinks = len(_soup.select("a[href*='/jogo/']"))
+                print(f"   ⚠️ 0 jogos — título: '{_title[:50]}', "
+                      f"agenda_list tables: {_tables}, trs: {_trs}, "
+                      f"/jogo/ links: {_jlinks}, HTML: {len(html)} chars")
+            else:
+                print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
+
+            time.sleep(0.5)
+
+        print(f"\n📊 Fase 1 (Agenda): {len(all_games)} jogos encontrados")
+
+        # ================================================================
+        # FASE 2: Scraping por AF/competição — distritais e formação
+        # ================================================================
+        print("\n🏟️  Fase 2: A descobrir jogos distritais e de formação...")
+        af_total = 0
+
+        # Calcular época atual para filtrar edições relevantes
+        _now = datetime.now()
+        _season_start = _now.year if _now.month >= 8 else _now.year - 1
+        _season_end = _season_start + 1
+        season_tags = [
+            f"{_season_start}-{str(_season_end)[-2:]}",
+            f"{_season_start}-{_season_end}",
+            str(_season_end),
+        ]
+
+        for comp_name, comp_url in PT_COMPETITION_URLS.items():
+            try:
+                print(f"  📋 {comp_name}...")
+
+                # 1. Visitar página da competição/AF
+                html = fetch_html(session, comp_url)
                 if not html:
-                    print(f"   ⚠️ Página vazia (sem HTML)")
                     continue
-                datas_ok.add(data_str)
 
-                jogos = parse_games_from_html(html)
-                novos = 0
-                for jogo in jogos:
-                    gid = _extract_game_id(jogo["url"])
-                    if gid not in ids_vistos:
-                        ids_vistos.add(gid)
-                        all_games.append(jogo)
-                        novos += 1
+                comp_soup = BeautifulSoup(html, "html.parser")
 
-                # Diagnóstico: se 0 jogos, mostrar o que está na página
-                if not jogos:
-                    from bs4 import BeautifulSoup as _BS
-                    _soup = _BS(html, "html.parser")
-                    _title = _soup.title.string if _soup.title else "sem título"
-                    _tables = len(_soup.select("table.agenda_list"))
-                    _trs = len(_soup.select("table.agenda_list tr"))
-                    _jlinks = len(_soup.select("a[href*='/jogo/']"))
-                    print(f"   ⚠️ 0 jogos — título: '{_title[:50]}', "
-                          f"agenda_list tables: {_tables}, trs: {_trs}, "
-                          f"/jogo/ links: {_jlinks}, HTML: {len(html)} chars")
-                else:
-                    print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
+                # 2. Recolher links de edições directamente (só época atual)
+                edition_urls = []
+                for link in comp_soup.select("a[href*='/edicao/']"):
+                    href = link.get("href", "")
+                    if href and any(tag in href for tag in season_tags):
+                        full = href if href.startswith("http") else base + href
+                        if full not in edition_urls:
+                            edition_urls.append(full)
 
-            print(f"\n📊 Fase 1 (Agenda): {len(all_games)} jogos encontrados")
-
-            # ================================================================
-            # FASE 2: Scraping por AF/competição — distritais e formação
-            # ================================================================
-            print("\n🏟️  Fase 2: A descobrir jogos distritais e de formação...")
-            af_page = await context.new_page()
-            af_total = 0
-
-            # Calcular época atual para filtrar edições relevantes
-            _now = datetime.now()
-            _season_start = _now.year if _now.month >= 8 else _now.year - 1
-            _season_end = _season_start + 1
-            season_tags = [
-                f"{_season_start}-{str(_season_end)[-2:]}",
-                f"{_season_start}-{_season_end}",
-                str(_season_end),
-            ]
-
-            for comp_name, comp_url in PT_COMPETITION_URLS.items():
-                try:
-                    print(f"  📋 {comp_name}...")
-
-                    # 1. Visitar página da competição/AF (load completo com scroll)
-                    html = await load_page(af_page, comp_url)
-                    if not html:
-                        continue
-
-                    comp_soup = BeautifulSoup(html, "html.parser")
-
-                    # 2. Recolher links de edições directamente (só época atual)
-                    edition_urls = []
-                    for link in comp_soup.select("a[href*='/edicao/']"):
+                # 3. Se não há edições, esta é uma página "umbrella" (AF)
+                #    — descobrir sub-competições primeiro
+                if not edition_urls:
+                    sub_comp_urls = []
+                    for link in comp_soup.select("a[href*='/competicao/']"):
                         href = link.get("href", "")
-                        if href and any(tag in href for tag in season_tags):
+                        if href and "/competicao/" in href:
                             full = href if href.startswith("http") else base + href
-                            if full not in edition_urls:
-                                edition_urls.append(full)
+                            if full != comp_url and full not in sub_comp_urls:
+                                sub_comp_urls.append(full)
 
-                    # 3. Se não há edições, esta é uma página "umbrella" (AF)
-                    #    — descobrir sub-competições primeiro
-                    if not edition_urls:
-                        sub_comp_urls = []
-                        for link in comp_soup.select("a[href*='/competicao/']"):
-                            href = link.get("href", "")
-                            if href and "/competicao/" in href:
-                                full = href if href.startswith("http") else base + href
-                                if full != comp_url and full not in sub_comp_urls:
-                                    sub_comp_urls.append(full)
+                    sub_comp_urls = sub_comp_urls[:20]
+                    if sub_comp_urls:
+                        print(f"     📂 {len(sub_comp_urls)} sub-competições encontradas")
 
-                        sub_comp_urls = sub_comp_urls[:20]
-                        if sub_comp_urls:
-                            print(f"     📂 {len(sub_comp_urls)} sub-competições encontradas")
-
-                        for sc_url in sub_comp_urls:
-                            try:
-                                sc_html = await load_page_fast(af_page, sc_url)
-                                if not sc_html:
-                                    continue
-                                sc_soup = BeautifulSoup(sc_html, "html.parser")
-                                for link in sc_soup.select("a[href*='/edicao/']"):
-                                    href = link.get("href", "")
-                                    if href and any(tag in href for tag in season_tags):
-                                        full = href if href.startswith("http") else base + href
-                                        if full not in edition_urls:
-                                            edition_urls.append(full)
-                                await asyncio.sleep(0.2)
-                            except Exception:
+                    for sc_url in sub_comp_urls:
+                        try:
+                            sc_html = fetch_html(session, sc_url, retries=1)
+                            if not sc_html:
                                 continue
+                            sc_soup = BeautifulSoup(sc_html, "html.parser")
+                            for link in sc_soup.select("a[href*='/edicao/']"):
+                                href = link.get("href", "")
+                                if href and any(tag in href for tag in season_tags):
+                                    full = href if href.startswith("http") else base + href
+                                    if full not in edition_urls:
+                                        edition_urls.append(full)
+                            time.sleep(0.2)
+                        except Exception:
+                            continue
 
-                    # Limitar edições por AF (muitas séries/escalões)
-                    edition_urls = edition_urls[:30]
-                    print(f"     📖 {len(edition_urls)} edições encontradas")
+                # Limitar edições por AF (muitas séries/escalões)
+                edition_urls = edition_urls[:30]
+                print(f"     📖 {len(edition_urls)} edições encontradas")
 
-                    # 4. Tentar extrair jogos directamente da página (alguns mostram próximos jogos)
-                    if not edition_urls:
-                        jogos = extract_games_from_page(html, comp_name)
+                # 4. Tentar extrair jogos directamente da página (alguns mostram próximos jogos)
+                if not edition_urls:
+                    jogos = extract_games_from_page(html, comp_name)
+                    for j in jogos:
+                        gid = _extract_game_id(j["url"])
+                        if gid not in ids_vistos:
+                            ids_vistos.add(gid)
+                            all_games.append(j)
+                            af_total += 1
+                    if jogos:
+                        print(f"     ✅ Directos: +{len(jogos)} jogos")
+                    continue
+
+                # 5. Para cada edição, visitar próximos jogos e extrair
+                for ed_idx, ed_url in enumerate(edition_urls):
+                    try:
+                        # Prioridade: "próximos jogos" (só mostra jogos futuros)
+                        prox_url = ed_url.rstrip("/") + "/proximos-jogos"
+                        html_ed = fetch_html(session, prox_url, retries=1)
+
+                        # Se não funcionou, tentar página principal da edição
+                        if not html_ed or len(html_ed) < 5000:
+                            html_ed = fetch_html(session, ed_url, retries=1)
+
+                        if not html_ed:
+                            continue
+
+                        ed_soup = BeautifulSoup(html_ed, "html.parser")
+                        ed_h1 = ed_soup.select_one("h1, h2.header_title")
+                        ed_comp = ed_h1.get_text(strip=True) if ed_h1 else comp_name
+
+                        # Debug: primeira edição de cada AF — mostrar o que foi encontrado
+                        if ed_idx == 0:
+                            n_game_links = len(ed_soup.select("a[href*='/jogo/']"))
+                            n_team_links = len(ed_soup.select("a[href*='/equipa/']"))
+                            page_title = ed_soup.title.string if ed_soup.title else "sem título"
+                            print(f"     🔍 Debug {ed_comp}: {n_game_links} links /jogo/, {n_team_links} links /equipa/, título: {page_title[:60]}")
+
+                        # Tentar os dois parsers: genérico + o da Fase 1
+                        jogos = extract_games_from_page(html_ed, ed_comp)
+                        if not jogos:
+                            jogos = parse_games_from_html(html_ed)
+                            for j in jogos:
+                                j["competicao"] = ed_comp
+                                j["has_pt_flag"] = True
+
+                        novos_ed = 0
                         for j in jogos:
                             gid = _extract_game_id(j["url"])
                             if gid not in ids_vistos:
                                 ids_vistos.add(gid)
                                 all_games.append(j)
+                                novos_ed += 1
                                 af_total += 1
-                        if jogos:
-                            print(f"     ✅ Directos: +{len(jogos)} jogos")
+
+                        if novos_ed:
+                            print(f"     ✅ {ed_comp}: +{novos_ed} jogos")
+
+                        time.sleep(0.3)
+                    except Exception as e:
+                        print(f"     ⚠️ Erro edição {ed_url}: {e}")
                         continue
 
-                    # 5. Para cada edição, visitar próximos jogos e extrair
-                    for ed_idx, ed_url in enumerate(edition_urls):
-                        try:
-                            # Prioridade: "próximos jogos" (só mostra jogos futuros)
-                            prox_url = ed_url.rstrip("/") + "/proximos-jogos"
-                            html_ed = await load_page_fast(af_page, prox_url, scroll=True)
+                time.sleep(0.2)
+            except Exception as e:
+                print(f"  ⚠️ Erro {comp_name}: {e}")
+                continue
 
-                            # Se não funcionou, tentar página principal da edição
-                            if not html_ed or len(html_ed) < 5000:
-                                html_ed = await load_page_fast(af_page, ed_url, scroll=True)
+        print(f"\n📊 Fase 2 (AFs): +{af_total} jogos distritais/formação")
+        print(f"📊 Total: {len(all_games)} jogos encontrados")
 
-                            if not html_ed:
-                                continue
+        # Filtrar: manter apenas jogos portugueses relevantes
+        jogos_pt = []
+        skipped_geo = 0
+        for jogo in all_games:
+            casa, fora = jogo["casa"], jogo["fora"]
+            comp = jogo["competicao"]
+            
+            if not is_portuguese_game(
+                casa, fora, comp, jogo.get("has_pt_flag", False)
+            ):
+                continue
 
-                            ed_soup = BeautifulSoup(html_ed, "html.parser")
-                            ed_h1 = ed_soup.select_one("h1, h2.header_title")
-                            ed_comp = ed_h1.get_text(strip=True) if ed_h1 else comp_name
+            geo = (
+                geolocalizar_estadio(casa, comp)
+                or geolocalizar_estadio(fora, comp)
+            )
+            if not geo:
+                skipped_geo += 1
+                print(f"    ⚠️ Sem geolocalização: {casa} vs {fora} ({comp})")
+                continue
 
-                            # Debug: primeira edição de cada AF — mostrar o que foi encontrado
-                            if ed_idx == 0:
-                                n_game_links = len(ed_soup.select("a[href*='/jogo/']"))
-                                n_team_links = len(ed_soup.select("a[href*='/equipa/']"))
-                                page_title = ed_soup.title.string if ed_soup.title else "sem título"
-                                print(f"     🔍 Debug {ed_comp}: {n_game_links} links /jogo/, {n_team_links} links /equipa/, título: {page_title[:60]}")
+            jogo["_geo"] = geo
+            jogos_pt.append(jogo)
 
-                            # Tentar os dois parsers: genérico + o da Fase 1
-                            jogos = extract_games_from_page(html_ed, ed_comp)
-                            if not jogos:
-                                jogos = parse_games_from_html(html_ed)
-                                for j in jogos:
-                                    j["competicao"] = ed_comp
-                                    j["has_pt_flag"] = True
+        print(f"\n⚽ {len(jogos_pt)} jogos portugueses ({skipped_geo} sem geolocalização)")
 
-                            novos_ed = 0
-                            for j in jogos:
-                                gid = _extract_game_id(j["url"])
-                                if gid not in ids_vistos:
-                                    ids_vistos.add(gid)
-                                    all_games.append(j)
-                                    novos_ed += 1
-                                    af_total += 1
+        # Construir resultados + extrair detalhes (equipas/classificação) dos jogos
+        resultados = []
 
-                            if novos_ed:
-                                print(f"     ✅ {ed_comp}: +{novos_ed} jogos")
+        for idx, jogo in enumerate(jogos_pt):
+            casa, fora = jogo["casa"], jogo["fora"]
+            geo = jogo["_geo"]
 
-                            await asyncio.sleep(0.3)
-                        except Exception as e:
-                            print(f"     ⚠️ Erro edição {ed_url}: {e}")
-                            continue
+            cat, preco, escalao = classificar_evento(jogo["competicao"], f"{casa} vs {fora}")
 
-                    await asyncio.sleep(0.2)
+            evento = {
+                "nome": f"{casa} vs {fora}",
+                "tipo": "Futebol",
+                "categoria": cat,
+                "escalao": escalao,
+                "equipa_casa": casa,
+                "equipa_fora": fora,
+                "url_jogo": jogo.get("url", ""),
+                "url_equipa_casa": "",
+                "url_equipa_fora": "",
+                "url_classificacao": "",
+                "data": jogo["data"],
+                "hora": jogo["hora"],
+                "local": geo["local"],
+                "latitude": geo["lat"],
+                "longitude": geo["lon"],
+                "preco": preco,
+                "descricao": f"Jogo de {cat}. {jogo['competicao']}",
+                "url_maps": (
+                    f"https://www.google.com/maps/search/"
+                    f"?api=1&query={geo['lat']},{geo['lon']}"
+                ),
+                "status": "aprovado",
+            }
+
+            # Extrair URLs de equipas e classificação a partir da página do jogo
+            if jogo.get("url"):
+                try:
+                    details = scrape_game_details(session, jogo["url"])
+                    evento["url_equipa_casa"] = details.get("url_equipa_casa", "")
+                    evento["url_equipa_fora"] = details.get("url_equipa_fora", "")
+                    evento["url_classificacao"] = details.get("url_classificacao", "")
+                    time.sleep(0.3)
                 except Exception as e:
-                    print(f"  ⚠️ Erro {comp_name}: {e}")
-                    continue
+                    print(f"    ⚠️ Sem detalhes para {casa} vs {fora}: {e}")
 
-            await af_page.close()
-            print(f"\n📊 Fase 2 (AFs): +{af_total} jogos distritais/formação")
-            print(f"📊 Total: {len(all_games)} jogos encontrados")
+                # Progresso
+                if (idx + 1) % 20 == 0:
+                    print(f"  📋 Detalhes: {idx + 1}/{len(jogos_pt)} jogos processados")
 
-            # Filtrar: manter apenas jogos portugueses relevantes
-            jogos_pt = []
-            skipped_geo = 0
-            for jogo in all_games:
-                casa, fora = jogo["casa"], jogo["fora"]
-                comp = jogo["competicao"]
-                
-                if not is_portuguese_game(
-                    casa, fora, comp, jogo.get("has_pt_flag", False)
-                ):
-                    continue
+            resultados.append(evento)
+            print(f"  ✅ {evento['nome']} ({jogo['data']} {jogo['hora']})")
 
-                geo = (
-                    geolocalizar_estadio(casa, comp)
-                    or geolocalizar_estadio(fora, comp)
-                )
-                if not geo:
-                    skipped_geo += 1
-                    print(f"    ⚠️ Sem geolocalização: {casa} vs {fora} ({comp})")
-                    continue
+        print(f"\n🔗 Detalhes extraídos para {sum(1 for r in resultados if r['url_equipa_casa'])} jogos")
 
-                jogo["_geo"] = geo
-                jogos_pt.append(jogo)
+        return resultados, datas_ok
 
-            print(f"\n⚽ {len(jogos_pt)} jogos portugueses ({skipped_geo} sem geolocalização)")
-
-            # Construir resultados + extrair detalhes (equipas/classificação) dos jogos
-            resultados = []
-            detail_page = await browser.new_page()
-            await detail_page.set_extra_http_headers({"Accept-Language": "pt-PT,pt;q=0.9"})
-
-            for idx, jogo in enumerate(jogos_pt):
-                casa, fora = jogo["casa"], jogo["fora"]
-                geo = jogo["_geo"]
-
-                cat, preco, escalao = classificar_evento(jogo["competicao"], f"{casa} vs {fora}")
-
-                evento = {
-                    "nome": f"{casa} vs {fora}",
-                    "tipo": "Futebol",
-                    "categoria": cat,
-                    "escalao": escalao,
-                    "equipa_casa": casa,
-                    "equipa_fora": fora,
-                    "url_jogo": jogo.get("url", ""),
-                    "url_equipa_casa": "",
-                    "url_equipa_fora": "",
-                    "url_classificacao": "",
-                    "data": jogo["data"],
-                    "hora": jogo["hora"],
-                    "local": geo["local"],
-                    "latitude": geo["lat"],
-                    "longitude": geo["lon"],
-                    "preco": preco,
-                    "descricao": f"Jogo de {cat}. {jogo['competicao']}",
-                    "url_maps": (
-                        f"https://www.google.com/maps/search/"
-                        f"?api=1&query={geo['lat']},{geo['lon']}"
-                    ),
-                    "status": "aprovado",
-                }
-
-                # Extrair URLs de equipas e classificação a partir da página do jogo
-                if jogo.get("url"):
-                    try:
-                        details = await scrape_game_details(detail_page, jogo["url"])
-                        evento["url_equipa_casa"] = details.get("url_equipa_casa", "")
-                        evento["url_equipa_fora"] = details.get("url_equipa_fora", "")
-                        evento["url_classificacao"] = details.get("url_classificacao", "")
-                        await asyncio.sleep(0.5)
-                    except Exception as e:
-                        print(f"    ⚠️ Sem detalhes para {casa} vs {fora}: {e}")
-
-                    # Progresso
-                    if (idx + 1) % 20 == 0:
-                        print(f"  📋 Detalhes: {idx + 1}/{len(jogos_pt)} jogos processados")
-
-                resultados.append(evento)
-                print(f"  ✅ {evento['nome']} ({jogo['data']} {jogo['hora']})")
-
-            await detail_page.close()
-            print(f"\n🔗 Detalhes extraídos para {sum(1 for r in resultados if r['url_equipa_casa'])} jogos")
-
-            return resultados, datas_ok
-
-        except Exception as e:
-            print(f"❌ Erro Scraping: {e}")
-            return [], set()
-        finally:
-            await browser.close()
+    except Exception as e:
+        print(f"❌ Erro Scraping: {e}")
+        return [], set()
+    finally:
+        session.close()
 
 
 def verificar_adiamentos(eventos_novos: list, datas_ok: set):
@@ -1250,12 +1161,12 @@ def verificar_adiamentos(eventos_novos: list, datas_ok: set):
         print("📋 Sem adiamentos detectados")
 
 
-async def main():
+def main():
     # 1. Quinta-feira: limpar eventos concluídos
     limpar_eventos_concluidos()
 
     # 2. Scrape de novos eventos
-    eventos, datas_ok = await scrape_zerozero()
+    eventos, datas_ok = scrape_zerozero()
 
     if not eventos:
         print("⚠️ Nenhum evento português encontrado.")
@@ -1287,4 +1198,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

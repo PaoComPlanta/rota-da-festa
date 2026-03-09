@@ -2,7 +2,7 @@
 Scraper de Festas, Concertos, Feiras e Cultura — Rota da Festa
 ================================================================
 Scrape de eventos culturais/festivos em Portugal a partir de:
-  1. Eventbrite Portugal (Playwright — renderiza JS)
+  1. Eventbrite Portugal (curl_cffi — HTTP com TLS fingerprint Chrome)
   2. Classificação automática via Groq LLM
 
 Corre diariamente na GitHub Action após o scraper_mestre.py.
@@ -10,7 +10,6 @@ Corre diariamente na GitHub Action após o scraper_mestre.py.
 
 import os
 import re
-import asyncio
 import time
 import json
 from datetime import datetime, timedelta
@@ -18,7 +17,7 @@ from bs4 import BeautifulSoup
 from supabase import create_client, Client
 from dotenv import load_dotenv
 from geopy.geocoders import Nominatim
-from playwright.async_api import async_playwright
+from curl_cffi import requests as cf_requests
 
 # Carregar envs
 load_dotenv()
@@ -208,47 +207,19 @@ def parse_eventbrite_date(date_str: str) -> tuple:
     return None, None
 
 
-async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_lat: float, fallback_lon: float) -> list:
+def scrape_eventbrite(session: cf_requests.Session, region_slug: str, region_name: str, fallback_lat: float, fallback_lon: float) -> list:
     """Scrape eventos do Eventbrite para uma região."""
     url = f"https://www.eventbrite.pt/d/{region_slug}/events/"
     eventos = []
 
     try:
         print(f"\n🌐 Eventbrite: {region_name} ({url})")
-        await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+        resp = session.get(url, timeout=30)
+        if resp.status_code != 200:
+            print(f"  ⚠️ HTTP {resp.status_code} para {url}")
+            return eventos
 
-        # Verificar/esperar Cloudflare
-        title = await page.title()
-        if "cloudflare" in title.lower() or "just a moment" in title.lower():
-            try:
-                await page.wait_for_function(
-                    "() => !document.title.toLowerCase().includes('just a moment')"
-                    " && !document.title.toLowerCase().includes('cloudflare')",
-                    timeout=15000,
-                )
-            except Exception:
-                print(f"  ⚠️ CF bloqueou {region_name}")
-                return eventos
-
-        await page.wait_for_timeout(3000)
-
-        # Aceitar cookies se presentes
-        for cookie_sel in ["#onetrust-accept-btn-handler", "#didomi-notice-agree-button", "button[data-testid='accept-cookies']", "button.fc-cta-consent"]:
-            try:
-                btn = page.locator(cookie_sel)
-                if await btn.is_visible(timeout=1500):
-                    await btn.click()
-                    await page.wait_for_timeout(500)
-                    break
-            except Exception:
-                continue
-
-        # Scroll para carregar mais eventos
-        for _ in range(3):
-            await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-            await page.wait_for_timeout(1500)
-
-        html = await page.content()
+        html = resp.text
         soup = BeautifulSoup(html, "html.parser")
 
         # Eventbrite usa JSON-LD structured data
@@ -462,7 +433,7 @@ def deduplicate_events(eventos: list) -> list:
     return unique
 
 
-async def main():
+def main():
     print("=" * 60)
     print("🎪 SCRAPER DE FESTAS E CULTURA — Rota da Festa")
     print(f"📅 {datetime.now().strftime('%Y-%m-%d %H:%M')}")
@@ -470,41 +441,29 @@ async def main():
 
     todos_eventos = []
 
-    async with async_playwright() as p:
-        browser = await p.chromium.launch(
-            headless=True,
-            args=[
-                "--disable-blink-features=AutomationControlled",
-                "--no-sandbox",
-                "--disable-dev-shm-usage",
-            ],
-        )
-        context = await browser.new_context(
-            user_agent="Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-            locale="pt-PT",
-            timezone_id="Europe/Lisbon",
-        )
-        await context.add_init_script("""
-            Object.defineProperty(navigator, 'webdriver', { get: () => undefined });
-            Object.defineProperty(navigator, 'languages', { get: () => ['pt-PT', 'pt', 'en-US', 'en'] });
-            Object.defineProperty(navigator, 'plugins', {
-                get: () => [1, 2, 3, 4, 5],
-            });
-            window.chrome = { runtime: {}, loadTimes: function(){}, csi: function(){} };
-        """)
-        page = await context.new_page()
+    session = cf_requests.Session(impersonate="chrome131")
+    session.headers.update({
+        "Accept-Language": "pt-PT,pt;q=0.9,en-US;q=0.8,en;q=0.7",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/webp,*/*;q=0.8",
+        "Accept-Encoding": "gzip, deflate, br",
+        "Sec-Fetch-Dest": "document",
+        "Sec-Fetch-Mode": "navigate",
+        "Sec-Fetch-Site": "none",
+        "Sec-Fetch-User": "?1",
+        "Upgrade-Insecure-Requests": "1",
+    })
 
-        # === FONTE 1: Eventbrite Portugal ===
-        print("\n🎫 FONTE: Eventbrite Portugal")
-        for slug, name, lat, lon in EVENTBRITE_SEARCHES:
-            try:
-                eventos = await scrape_eventbrite(page, slug, name, lat, lon)
-                todos_eventos.extend(eventos)
-                await page.wait_for_timeout(2000)  # Rate limiting
-            except Exception as e:
-                print(f"  ❌ Falha total em {name}: {e}")
+    # === FONTE 1: Eventbrite Portugal ===
+    print("\n🎫 FONTE: Eventbrite Portugal")
+    for slug, name, lat, lon in EVENTBRITE_SEARCHES:
+        try:
+            eventos = scrape_eventbrite(session, slug, name, lat, lon)
+            todos_eventos.extend(eventos)
+            time.sleep(1)
+        except Exception as e:
+            print(f"  ❌ Falha total em {name}: {e}")
 
-        await browser.close()
+    session.close()
 
     # Deduplicar
     todos_eventos = deduplicate_events(todos_eventos)
@@ -538,4 +497,4 @@ async def main():
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    main()

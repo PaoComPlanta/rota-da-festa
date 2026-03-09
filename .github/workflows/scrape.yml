@@ -22,10 +22,7 @@ jobs:
     - name: Install dependencies
       run: |
         python -m pip install --upgrade pip
-        # Instalar dependências (Playwright é essencial para o ZeroZero)
-        pip install supabase requests beautifulsoup4 geopy groq playwright python-dotenv
-        # Instalar o Chromium com dependências de sistema
-        playwright install --with-deps chromium
+        pip install supabase requests beautifulsoup4 geopy groq curl_cffi python-dotenv
 
     - name: Run Scraper Futebol
       env:
