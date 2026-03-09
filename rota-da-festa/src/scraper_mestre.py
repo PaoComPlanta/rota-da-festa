@@ -594,19 +594,35 @@ async def load_page(page, url: str, accept_cookies: bool = False,
         try:
             await page.goto(url, timeout=60000, wait_until="domcontentloaded")
 
-            if accept_cookies:
+            # Cloudflare: verificar e esperar resolução ANTES de interagir
+            title = await page.title()
+            if "cloudflare" in title.lower() or "just a moment" in title.lower():
                 try:
-                    btn = page.locator("#didomi-notice-agree-button")
-                    if await btn.is_visible(timeout=3000):
+                    await page.wait_for_function(
+                        "() => !document.title.toLowerCase().includes('just a moment')"
+                        " && !document.title.toLowerCase().includes('cloudflare')",
+                        timeout=15000,
+                    )
+                    await page.wait_for_timeout(2000)
+                except Exception:
+                    raise RuntimeError("Cloudflare challenge detectado")
+
+            # Aceitar cookies (Didomi ou fc-consent) — tentar em todas as cargas
+            for cookie_sel in ["#didomi-notice-agree-button", "button.fc-cta-consent", ".accept-cookies"]:
+                try:
+                    btn = page.locator(cookie_sel)
+                    if await btn.is_visible(timeout=2000):
                         await btn.click()
                         await page.wait_for_timeout(1000)
+                        break
                 except Exception:
-                    pass
+                    continue
 
             try:
                 # Esperar por qualquer um dos layouts comuns
                 await page.wait_for_selector(
-                    "li.game, table.agenda_list, table.zztable", timeout=15000
+                    "li.game, table.agenda_list, table.zztable, a[href*='/edicao/']",
+                    timeout=15000,
                 )
             except Exception:
                 pass
@@ -631,19 +647,6 @@ async def load_page(page, url: str, accept_cookies: bool = False,
             except Exception:
                 pass
 
-            title = await page.title()
-            if "cloudflare" in title.lower() or "just a moment" in title.lower():
-                # Esperar pela resolução automática do JS challenge
-                try:
-                    await page.wait_for_function(
-                        "() => !document.title.toLowerCase().includes('just a moment')"
-                        " && !document.title.toLowerCase().includes('cloudflare')",
-                        timeout=15000,
-                    )
-                    await page.wait_for_timeout(2000)
-                except Exception:
-                    raise RuntimeError("Cloudflare challenge detectado")
-
             return await page.content()
 
         except Exception as e:
@@ -663,14 +666,7 @@ async def load_page_fast(page, url: str, scroll: bool = False) -> str:
         await page.goto(url, timeout=30000, wait_until="domcontentloaded")
         await page.wait_for_timeout(1500)
 
-        if scroll:
-            for _ in range(3):
-                prev = await page.evaluate("document.body.scrollHeight")
-                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
-                await page.wait_for_timeout(800)
-                if await page.evaluate("document.body.scrollHeight") == prev:
-                    break
-
+        # Cloudflare: verificar e esperar resolução primeiro
         title = await page.title()
         if "cloudflare" in title.lower() or "just a moment" in title.lower():
             try:
@@ -682,6 +678,26 @@ async def load_page_fast(page, url: str, scroll: bool = False) -> str:
                 await page.wait_for_timeout(1000)
             except Exception:
                 return ""
+
+        # Aceitar cookies se presentes
+        for cookie_sel in ["#didomi-notice-agree-button", "button.fc-cta-consent"]:
+            try:
+                btn = page.locator(cookie_sel)
+                if await btn.is_visible(timeout=1000):
+                    await btn.click()
+                    await page.wait_for_timeout(500)
+                    break
+            except Exception:
+                continue
+
+        if scroll:
+            for _ in range(3):
+                prev = await page.evaluate("document.body.scrollHeight")
+                await page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                await page.wait_for_timeout(800)
+                if await page.evaluate("document.body.scrollHeight") == prev:
+                    break
+
         return await page.content()
     except Exception as e:
         print(f"    ⚠️ Fast load falhou ({url}): {e}")
@@ -826,37 +842,37 @@ def extract_games_from_page(html: str, comp_name: str = "") -> list:
 
 
 async def scrape_zerozero():
-    base_url = "https://www.zerozero.pt/agenda.php"
+    base_url = "https://www.zerozero.pt/agenda"
     base = "https://www.zerozero.pt"
     print("🌍 A iniciar scraping do ZeroZero...")
 
     # URLs das 20 AFs + competições nacionais (do sitemap zerozero.pt)
     PT_COMPETITION_URLS = {
-        "af-algarve": "https://www.zerozero.pt/competicao/af-algarve/169",
-        "af-aveiro": "https://www.zerozero.pt/competicao/af-aveiro/170",
-        "af-beja": "https://www.zerozero.pt/competicao/af-beja/171",
-        "af-braga": "https://www.zerozero.pt/competicao/af-braga/172",
-        "af-braganca": "https://www.zerozero.pt/competicao/af-braganca/173",
-        "af-castelo-branco": "https://www.zerozero.pt/competicao/af-castelo-branco/174",
-        "af-coimbra": "https://www.zerozero.pt/competicao/af-coimbra/175",
-        "af-evora": "https://www.zerozero.pt/competicao/af-evora/176",
-        "af-guarda": "https://www.zerozero.pt/competicao/af-guarda/177",
-        "af-leiria": "https://www.zerozero.pt/competicao/af-leiria/178",
-        "af-lisboa": "https://www.zerozero.pt/competicao/af-lisboa/179",
-        "af-portalegre": "https://www.zerozero.pt/competicao/af-portalegre/180",
-        "af-porto": "https://www.zerozero.pt/competicao/af-porto/181",
-        "af-santarem": "https://www.zerozero.pt/competicao/af-santarem/182",
-        "af-setubal": "https://www.zerozero.pt/competicao/af-setubal/183",
-        "af-viana-do-castelo": "https://www.zerozero.pt/competicao/af-viana-do-castelo/184",
-        "af-vila-real": "https://www.zerozero.pt/competicao/af-vila-real/185",
-        "af-viseu": "https://www.zerozero.pt/competicao/af-viseu/186",
-        "af-ponta-delgada": "https://www.zerozero.pt/competicao/af-ponta-delgada/219",
-        "af-madeira": "https://www.zerozero.pt/competicao/af-madeira/222",
-        "liga-3": "https://www.zerozero.pt/competicao/iii-divisao/76",
-        "juniores-a": "https://www.zerozero.pt/competicao/i-divisao-juniores-a-sub-19-/136",
-        "juniores-b": "https://www.zerozero.pt/competicao/i-divisao-juniores-b-sub-17-/137",
-        "juniores-c": "https://www.zerozero.pt/competicao/i-divisao-juniores-c-sub-15-/138",
-        "feminina": "https://www.zerozero.pt/competicao/liga-portuguesa-feminina/143",
+        "af-algarve": "https://www.zerozero.pt/competition/af-algarve",
+        "af-aveiro": "https://www.zerozero.pt/competition/af-aveiro",
+        "af-beja": "https://www.zerozero.pt/competition/af-beja",
+        "af-braga": "https://www.zerozero.pt/competition/af-braga",
+        "af-braganca": "https://www.zerozero.pt/competition/af-braganca",
+        "af-castelo-branco": "https://www.zerozero.pt/competition/af-castelo-branco",
+        "af-coimbra": "https://www.zerozero.pt/competition/af-coimbra",
+        "af-evora": "https://www.zerozero.pt/competition/af-evora",
+        "af-guarda": "https://www.zerozero.pt/competition/af-guarda",
+        "af-leiria": "https://www.zerozero.pt/competition/af-leiria",
+        "af-lisboa": "https://www.zerozero.pt/competition/af-lisboa",
+        "af-portalegre": "https://www.zerozero.pt/competition/af-portalegre",
+        "af-porto": "https://www.zerozero.pt/competition/af-porto",
+        "af-santarem": "https://www.zerozero.pt/competition/af-santarem",
+        "af-setubal": "https://www.zerozero.pt/competition/af-setubal",
+        "af-viana-do-castelo": "https://www.zerozero.pt/competition/af-viana-do-castelo",
+        "af-vila-real": "https://www.zerozero.pt/competition/af-vila-real",
+        "af-viseu": "https://www.zerozero.pt/competition/af-viseu",
+        "af-ponta-delgada": "https://www.zerozero.pt/competition/af-ponta-delgada",
+        "af-madeira": "https://www.zerozero.pt/competition/af-madeira",
+        "liga-3": "https://www.zerozero.pt/competition/iii-divisao",
+        "juniores-a": "https://www.zerozero.pt/competition/i-divisao-juniores-a-sub-19-",
+        "juniores-b": "https://www.zerozero.pt/competition/i-divisao-juniores-b-sub-17-",
+        "juniores-c": "https://www.zerozero.pt/competition/i-divisao-juniores-c-sub-15-",
+        "feminina": "https://www.zerozero.pt/competition/liga-portuguesa-feminina",
     }
 
     async with async_playwright() as p:
@@ -906,6 +922,7 @@ async def scrape_zerozero():
 
                 html = await load_page(page, url, accept_cookies=(idx == 0))
                 if not html:
+                    print(f"   ⚠️ Página vazia (sem HTML)")
                     continue
                 datas_ok.add(data_str)
 
@@ -917,7 +934,20 @@ async def scrape_zerozero():
                         ids_vistos.add(gid)
                         all_games.append(jogo)
                         novos += 1
-                print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
+
+                # Diagnóstico: se 0 jogos, mostrar o que está na página
+                if not jogos:
+                    from bs4 import BeautifulSoup as _BS
+                    _soup = _BS(html, "html.parser")
+                    _title = _soup.title.string if _soup.title else "sem título"
+                    _tables = len(_soup.select("table.agenda_list"))
+                    _trs = len(_soup.select("table.agenda_list tr"))
+                    _jlinks = len(_soup.select("a[href*='/jogo/']"))
+                    print(f"   ⚠️ 0 jogos — título: '{_title[:50]}', "
+                          f"agenda_list tables: {_tables}, trs: {_trs}, "
+                          f"/jogo/ links: {_jlinks}, HTML: {len(html)} chars")
+                else:
+                    print(f"   🔍 {len(jogos)} jogos na página, {novos} novos")
 
             print(f"\n📊 Fase 1 (Agenda): {len(all_games)} jogos encontrados")
 

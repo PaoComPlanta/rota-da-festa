@@ -216,7 +216,32 @@ async def scrape_eventbrite(page, region_slug: str, region_name: str, fallback_l
     try:
         print(f"\n🌐 Eventbrite: {region_name} ({url})")
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
+
+        # Verificar/esperar Cloudflare
+        title = await page.title()
+        if "cloudflare" in title.lower() or "just a moment" in title.lower():
+            try:
+                await page.wait_for_function(
+                    "() => !document.title.toLowerCase().includes('just a moment')"
+                    " && !document.title.toLowerCase().includes('cloudflare')",
+                    timeout=15000,
+                )
+            except Exception:
+                print(f"  ⚠️ CF bloqueou {region_name}")
+                return eventos
+
         await page.wait_for_timeout(3000)
+
+        # Aceitar cookies se presentes
+        for cookie_sel in ["#onetrust-accept-btn-handler", "#didomi-notice-agree-button", "button[data-testid='accept-cookies']", "button.fc-cta-consent"]:
+            try:
+                btn = page.locator(cookie_sel)
+                if await btn.is_visible(timeout=1500):
+                    await btn.click()
+                    await page.wait_for_timeout(500)
+                    break
+            except Exception:
+                continue
 
         # Scroll para carregar mais eventos
         for _ in range(3):
