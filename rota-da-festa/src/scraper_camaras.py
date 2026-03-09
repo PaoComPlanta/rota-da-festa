@@ -77,55 +77,9 @@ CAMARAS = [
         "lat": 40.2109, "lon": -8.4377,
         "tipo": "generic",
     },
-    {
-        "nome": "CM Guimarães",
-        "url": "https://www.cm-guimaraes.pt/agenda",
-        "concelho": "Guimarães",
-        "lat": 41.4425, "lon": -8.2918,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Viana do Castelo",
-        "url": "https://www.cm-viana-castelo.pt/agenda/",
-        "concelho": "Viana do Castelo",
-        "lat": 41.6936, "lon": -8.8319,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Vila Real",
-        "url": "https://www.cm-vilareal.pt/index.php/agenda",
-        "concelho": "Vila Real",
-        "lat": 41.2959, "lon": -7.7464,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Bragança",
-        "url": "https://www.cm-braganca.pt/agenda",
-        "concelho": "Bragança",
-        "lat": 41.8063, "lon": -6.7572,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Castelo Branco",
-        "url": "https://www.cm-castelobranco.pt/municipe/agenda/",
-        "concelho": "Castelo Branco",
-        "lat": 39.8228, "lon": -7.4906,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Guarda",
-        "url": "https://www.mun-guarda.pt/agenda/",
-        "concelho": "Guarda",
-        "lat": 40.5373, "lon": -7.2676,
-        "tipo": "generic",
-    },
-    {
-        "nome": "CM Santarém",
-        "url": "https://www.cm-santarem.pt/o-municipio/agenda-municipal",
-        "concelho": "Santarém",
-        "lat": 39.2369, "lon": -8.6850,
-        "tipo": "generic",
-    },
+    # NOTE: Removed 7 câmaras with persistently broken URLs (404 / timeout):
+    # Guimarães, Viana do Castelo, Vila Real, Bragança, Castelo Branco, Guarda, Santarém
+    # Re-add when their agenda pages come back online.
     {
         "nome": "CM Portalegre",
         "url": "https://www.cm-portalegre.pt/agenda",
